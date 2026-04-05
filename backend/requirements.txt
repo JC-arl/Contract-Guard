@@ -1,0 +1,10 @@
+fastapi
+uvicorn[standard]
+python-multipart
+pydantic-settings
+pymupdf
+python-dotenv
+langchain
+langchain-ollama
+langchain-huggingface
+langchain-chroma

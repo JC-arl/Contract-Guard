@@ -1,0 +1,21 @@
+{
+  "analysis": {
+    "retrieval_top_k": 5,
+    "retrieval_min_score": 0.5,
+    "llm_temperature": 0.3,
+    "llm_max_tokens": 2048
+  },
+  "risk_thresholds": {
+    "high_confidence_min": 0.7,
+    "medium_confidence_min": 0.5,
+    "low_confidence_min": 0.3
+  },
+  "keywords": {
+    "보증금": ["보증금", "보증", "예치금", "반환"],
+    "해지": ["해지", "해약", "종료", "퇴거"],
+    "수선": ["수선", "수리", "보수", "유지"],
+    "원상복구": ["원상복구", "원상회복", "복원"],
+    "차임": ["차임", "임대료", "월세", "인상", "증액"],
+    "위약금": ["위약금", "손해배상", "벌금", "배상"]
+  }
+}

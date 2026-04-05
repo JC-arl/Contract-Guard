@@ -1,0 +1,898 @@
+/* ===== 초기화 ===== */
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+:root {
+  --primary: #1a1a1a;
+  --gold: #c5a55a;
+  --gold-light: #d4bb7a;
+  --gold-dim: rgba(197, 165, 90, 0.08);
+  --gold-dim2: rgba(197, 165, 90, 0.15);
+  --bg: #fafafa;
+  --bg-alt: #f5f5f5;
+  --white: #ffffff;
+  --text: #1e1e1e;
+  --text-sub: #4a4a4a;
+  --text-muted: #8c8c8c;
+  --border: #e8e8e8;
+  --border-light: #f0f0f0;
+  --risk-high: #e74c3c;
+  --risk-high-bg: #fef2f2;
+  --risk-medium: #e67e22;
+  --risk-medium-bg: #fef7f0;
+  --risk-low: #b8a024;
+  --risk-low-bg: #fefcf0;
+  --risk-safe: #27ae60;
+  --risk-safe-bg: #f0faf4;
+  --radius: 12px;
+  --radius-sm: 8px;
+  --shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+  --shadow-lg: 0 8px 24px rgba(0, 0, 0, 0.08);
+  --transition: 0.2s ease;
+  --max-w: 1040px;
+}
+
+body {
+  font-family:
+    "Pretendard Variable", "Pretendard", -apple-system, BlinkMacSystemFont,
+    system-ui, Roboto, "Helvetica Neue", "Segoe UI", "Noto Sans KR", sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ===== 레이아웃 ===== */
+.app {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* ===== 헤더 ===== */
+.app-header {
+  background: var(--white);
+  border-bottom: 1px solid var(--border);
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  height: 80px;
+  display: flex;
+  align-items: center;
+  padding: 0 2rem;
+}
+
+.header-inner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.header-logo {
+  height: 72px;
+  width: auto;
+}
+
+/* ===== 메인 ===== */
+.app-main {
+  flex: 1;
+}
+
+/* ===== 푸터 ===== */
+.app-footer {
+  background: var(--primary);
+  padding: 2rem;
+}
+
+.footer-inner {
+  max-width: var(--max-w);
+  margin: 0 auto;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: rgba(255, 255, 255, 0.4);
+  font-size: 0.75rem;
+}
+
+.footer-inner sup {
+  color: var(--gold);
+  font-size: 0.55em;
+}
+
+.footer-dot {
+  margin: 0 0.5rem;
+  opacity: 0.4;
+}
+
+/* ===== 업로드 페이지 ===== */
+.upload-page {
+  width: 100%;
+}
+
+/* 히어로 섹션 */
+.hero-section {
+  background: var(--primary);
+  padding: 4rem 2rem 3.5rem;
+  text-align: center;
+}
+
+.hero-content {
+  max-width: 600px;
+  margin: 0 auto;
+}
+
+.hero-badge {
+  display: inline-block;
+  padding: 0.3rem 0.85rem;
+  background: rgba(197, 165, 90, 0.15);
+  color: var(--gold-light);
+  font-size: 0.78rem;
+  font-weight: 500;
+  border-radius: 20px;
+  margin-bottom: 1.25rem;
+  letter-spacing: 0.01em;
+}
+
+.hero-title {
+  color: var(--white);
+  font-size: 2rem;
+  font-weight: 700;
+  line-height: 1.35;
+  letter-spacing: -0.03em;
+  margin-bottom: 1rem;
+}
+
+.hero-highlight {
+  color: var(--gold);
+}
+
+.hero-desc {
+  color: rgba(255, 255, 255, 0.55);
+  font-size: 0.92rem;
+  line-height: 1.7;
+}
+
+/* 등장 애니메이션 */
+.fade-up {
+  opacity: 0;
+  transform: translateY(20px);
+  animation: fadeUp 0.7s ease forwards;
+}
+
+@keyframes fadeUp {
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+
+/* 업로드 */
+.upload-section {
+  max-width: 580px;
+  margin: 2rem auto 0;
+  padding: 0 1.5rem;
+}
+
+.upload-card {
+  background: var(--white);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  border: 1px solid var(--border);
+}
+
+/* 파일 업로더 */
+.file-uploader {
+  border: 2px dashed var(--border);
+  border-radius: var(--radius);
+  padding: 2.5rem 2rem;
+  cursor: pointer;
+  transition: border-color var(--transition), background var(--transition);
+  background: var(--bg-alt);
+  text-align: center;
+}
+
+.file-uploader:hover,
+.file-uploader.drag-active {
+  border-color: var(--gold);
+  background: var(--gold-dim);
+}
+
+.file-uploader.disabled {
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+.upload-icon-circle {
+  width: 52px;
+  height: 52px;
+  border-radius: 50%;
+  background: var(--gold-dim2);
+  color: var(--gold);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin: 0 auto 0.75rem;
+}
+
+.upload-main-text {
+  font-size: 0.92rem;
+  font-weight: 500;
+  color: var(--text);
+  margin-bottom: 0.2rem;
+}
+
+.upload-hint {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+.file-info {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.75rem;
+}
+
+.file-icon-box {
+  background: var(--risk-high);
+  color: var(--white);
+  padding: 0.25rem 0.55rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+}
+
+.file-details {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+}
+
+.file-name {
+  font-weight: 600;
+  font-size: 0.9rem;
+}
+
+.file-size {
+  color: var(--text-muted);
+  font-size: 0.78rem;
+}
+
+/* 로딩 */
+.loading-indicator {
+  margin-top: 1.25rem;
+  text-align: center;
+}
+
+.loading-bar {
+  width: 100%;
+  height: 3px;
+  background: var(--border);
+  border-radius: 2px;
+  overflow: hidden;
+  margin-bottom: 0.6rem;
+}
+
+.loading-bar-fill {
+  height: 100%;
+  width: 30%;
+  background: var(--gold);
+  border-radius: 2px;
+  animation: loading-slide 1.8s ease-in-out infinite;
+}
+
+@keyframes loading-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(400%); }
+}
+
+.loading-indicator p {
+  color: var(--text-sub);
+  font-size: 0.85rem;
+}
+
+/* 에러 */
+.error-message {
+  margin-top: 1rem;
+  padding: 0.7rem 1rem;
+  background: var(--risk-high-bg);
+  color: var(--risk-high);
+  border-radius: var(--radius-sm);
+  border: 1px solid rgba(231, 76, 60, 0.12);
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+}
+
+.error-icon {
+  width: 18px;
+  height: 18px;
+  background: var(--risk-high);
+  color: white;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.65rem;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+
+/* 기능 소개 */
+.features-section {
+  max-width: var(--max-w);
+  margin: 3rem auto 0;
+  padding: 0 1.5rem;
+}
+
+.features-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+}
+
+.feature-card {
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+
+.feature-card:hover {
+  border-color: var(--gold-light);
+  box-shadow: var(--shadow);
+}
+
+.feature-icon-wrap {
+  width: 44px;
+  height: 44px;
+  border-radius: 10px;
+  background: var(--gold-dim2);
+  color: var(--gold);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 1rem;
+}
+
+.feature-card h3 {
+  font-size: 0.92rem;
+  font-weight: 600;
+  margin-bottom: 0.35rem;
+  color: var(--text);
+}
+
+.feature-card p {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  line-height: 1.5;
+}
+
+/* ===== 결과 페이지 ===== */
+.result-page {
+  max-width: var(--max-w);
+  margin: 0 auto;
+  padding: 2rem 1.5rem;
+}
+
+.result-top-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 1.5rem;
+}
+
+.back-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  background: var(--white);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.4rem 0.75rem;
+  cursor: pointer;
+  font-size: 0.82rem;
+  color: var(--text-sub);
+  transition: all var(--transition);
+  white-space: nowrap;
+}
+
+.back-button:hover {
+  border-color: var(--gold);
+  color: var(--text);
+}
+
+.result-filename {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* 요약 카드 */
+.result-summary-card {
+  background: var(--white);
+  border-radius: var(--radius);
+  padding: 1.75rem;
+  margin-bottom: 2rem;
+  border: 1px solid var(--border);
+}
+
+/* 위험도 게이지 */
+.risk-gauge {
+  display: flex;
+  align-items: center;
+  gap: 2rem;
+  margin-bottom: 1.25rem;
+}
+
+.gauge-circle {
+  width: 88px;
+  height: 88px;
+  border-radius: 50%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  border: 3px solid;
+  flex-shrink: 0;
+}
+
+.grade-danger {
+  border-color: var(--risk-high);
+  background: var(--risk-high-bg);
+}
+
+.grade-caution {
+  border-color: var(--risk-medium);
+  background: var(--risk-medium-bg);
+}
+
+.grade-safe {
+  border-color: var(--risk-safe);
+  background: var(--risk-safe-bg);
+}
+
+.gauge-number {
+  font-size: 1.75rem;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.grade-danger .gauge-number { color: var(--risk-high); }
+.grade-caution .gauge-number { color: var(--risk-medium); }
+.grade-safe .gauge-number { color: var(--risk-safe); }
+
+.gauge-label {
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.gauge-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.gauge-bar {
+  display: flex;
+  height: 8px;
+  border-radius: 4px;
+  overflow: hidden;
+  background: var(--border-light);
+  margin-bottom: 0.5rem;
+}
+
+.gauge-bar-risky {
+  background: var(--risk-high);
+  transition: width 0.4s ease;
+}
+
+.gauge-bar-safe {
+  background: var(--risk-safe);
+  transition: width 0.4s ease;
+}
+
+.gauge-legend {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.78rem;
+}
+
+.legend-risky { color: var(--risk-high); font-weight: 600; }
+.legend-safe { color: var(--risk-safe); font-weight: 600; }
+
+/* 요약 칩 */
+.summary-chips {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1.25rem;
+  flex-wrap: wrap;
+}
+
+.stat-chip {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+  padding: 0.3rem 0.65rem;
+  border-radius: 16px;
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+.stat-chip .stat-count {
+  font-weight: 700;
+  font-size: 0.88rem;
+}
+
+.stat-high {
+  background: var(--risk-high-bg);
+  color: var(--risk-high);
+}
+
+.stat-medium {
+  background: var(--risk-medium-bg);
+  color: var(--risk-medium);
+}
+
+.stat-low {
+  background: var(--risk-low-bg);
+  color: var(--risk-low);
+}
+
+.stat-safe-chip {
+  background: var(--risk-safe-bg);
+  color: var(--risk-safe);
+}
+
+.summary-text {
+  color: var(--text-sub);
+  font-size: 0.88rem;
+  padding-top: 1rem;
+  border-top: 1px solid var(--border-light);
+  line-height: 1.7;
+}
+
+/* 조항 목록 */
+.clause-list {
+  margin-bottom: 2rem;
+}
+
+.clause-list-header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 0.75rem;
+}
+
+.clause-list-header h3 {
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.clause-count {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
+
+/* 조항 카드 */
+.clause-card {
+  background: var(--white);
+  border-radius: var(--radius);
+  margin-bottom: 0.5rem;
+  overflow: hidden;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--border);
+  transition: box-shadow var(--transition);
+}
+
+.clause-card:hover {
+  box-shadow: var(--shadow);
+}
+
+.clause-high { border-left-color: var(--risk-high); }
+.clause-medium { border-left-color: var(--risk-medium); }
+.clause-low { border-left-color: var(--risk-low); }
+.clause-safe { border-left-color: var(--risk-safe); }
+
+.clause-header {
+  padding: 0.85rem 1.1rem;
+  cursor: pointer;
+}
+
+.clause-title-row {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 0.3rem;
+}
+
+.clause-title {
+  flex: 1;
+  font-size: 0.88rem;
+  font-weight: 600;
+}
+
+.expand-icon {
+  color: var(--text-muted);
+  font-size: 0.7rem;
+  transition: transform 0.2s;
+}
+
+/* 위험도 뱃지 */
+.risk-badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  border-radius: 4px;
+  font-size: 0.7rem;
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.risk-high {
+  background: var(--risk-high-bg);
+  color: var(--risk-high);
+}
+
+.risk-medium {
+  background: var(--risk-medium-bg);
+  color: var(--risk-medium);
+}
+
+.risk-low {
+  background: var(--risk-low-bg);
+  color: var(--risk-low);
+}
+
+.risk-safe {
+  background: var(--risk-safe-bg);
+  color: var(--risk-safe);
+}
+
+/* 신뢰도 바 */
+.confidence-bar {
+  display: flex;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.confidence-label {
+  color: var(--text-muted);
+  min-width: 32px;
+  font-size: 0.72rem;
+}
+
+.confidence-track {
+  flex: 1;
+  height: 4px;
+  background: var(--border-light);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.confidence-fill {
+  height: 100%;
+  border-radius: 2px;
+  transition: width 0.3s;
+}
+
+.bar-high { background: var(--risk-safe); }
+.bar-medium { background: var(--gold); }
+.bar-low { background: var(--risk-high); }
+
+.confidence-value {
+  min-width: 28px;
+  text-align: right;
+  color: var(--text-muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+/* 조항 본문 */
+.clause-body {
+  padding: 0 1.1rem 1.1rem;
+  border-top: 1px solid var(--border-light);
+}
+
+.clause-body h4 {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  margin: 0.85rem 0 0.4rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.clause-content p {
+  font-size: 0.85rem;
+  color: var(--text);
+  white-space: pre-wrap;
+  background: var(--bg-alt);
+  padding: 0.7rem 0.85rem;
+  border-radius: 6px;
+  border: 1px solid var(--border-light);
+  line-height: 1.7;
+}
+
+.clause-explanation p {
+  font-size: 0.85rem;
+  color: var(--text);
+  line-height: 1.7;
+}
+
+/* 위험 항목 */
+.risk-item {
+  background: var(--bg-alt);
+  border-radius: 6px;
+  padding: 0.7rem 0.85rem;
+  margin-bottom: 0.4rem;
+  border: 1px solid var(--border-light);
+}
+
+.risk-type {
+  font-weight: 700;
+  font-size: 0.78rem;
+  color: var(--risk-high);
+  margin-bottom: 0.15rem;
+}
+
+.risk-description {
+  font-size: 0.85rem;
+  color: var(--text);
+  line-height: 1.6;
+}
+
+.risk-suggestion {
+  font-size: 0.8rem;
+  color: var(--text-sub);
+  margin-top: 0.4rem;
+  padding-top: 0.4rem;
+  border-top: 1px dashed var(--border);
+  line-height: 1.6;
+}
+
+/* 참고 법률 */
+.clause-references ul {
+  list-style: none;
+  padding: 0;
+}
+
+.clause-references li {
+  font-size: 0.8rem;
+  color: var(--text-sub);
+  padding: 0.3rem 0;
+  border-bottom: 1px solid var(--border-light);
+  line-height: 1.6;
+}
+
+.clause-references li:last-child {
+  border-bottom: none;
+}
+
+/* 결과 없음 */
+.no-result {
+  text-align: center;
+  padding: 5rem 2rem;
+}
+
+.no-result h3 {
+  font-size: 1.1rem;
+  font-weight: 600;
+  margin-bottom: 0.5rem;
+}
+
+.no-result p {
+  color: var(--text-muted);
+  margin-bottom: 2rem;
+  font-size: 0.9rem;
+}
+
+.no-result button {
+  padding: 0.6rem 1.8rem;
+  background: var(--primary);
+  color: var(--white);
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.88rem;
+  font-weight: 600;
+  transition: background var(--transition);
+}
+
+.no-result button:hover {
+  background: #333;
+}
+
+/* ===== 반응형 ===== */
+@media (max-width: 768px) {
+  .features-grid {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+
+  .feature-card {
+    padding: 1.25rem;
+  }
+
+  .risk-gauge {
+    flex-direction: column;
+    text-align: center;
+    gap: 1rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .app-header {
+    padding: 0 1rem;
+    height: 52px;
+  }
+
+  .header-logo {
+    height: 52px;
+  }
+
+  .hero-section {
+    padding: 2.5rem 1.25rem 2.5rem;
+  }
+
+  .hero-title {
+    font-size: 1.5rem;
+  }
+
+  .hero-desc {
+    font-size: 0.85rem;
+  }
+
+  .upload-section {
+    padding: 0 1rem;
+    margin-top: 1.5rem;
+  }
+
+  .features-section {
+    padding: 0 1rem;
+    margin-top: 2rem;
+  }
+
+  .result-page {
+    padding: 1.5rem 1rem;
+  }
+
+  .gauge-circle {
+    width: 72px;
+    height: 72px;
+  }
+
+  .gauge-number {
+    font-size: 1.4rem;
+  }
+
+  .summary-chips {
+    gap: 0.4rem;
+  }
+
+  .stat-chip {
+    font-size: 0.72rem;
+    padding: 0.2rem 0.5rem;
+  }
+
+  .footer-inner {
+    flex-direction: column;
+    gap: 0.75rem;
+    text-align: center;
+  }
+
+  .app-footer {
+    padding: 1.5rem;
+  }
+}

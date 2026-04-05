@@ -1,0 +1,60 @@
+{
+  "risk_types": [
+    {
+      "id": "deposit_return",
+      "name": "보증금_미반환_위험",
+      "label": "보증금 미반환 위험",
+      "description": "보증금 반환과 관련하여 임차인에게 불리한 조건이 포함된 경우",
+      "severity": "high"
+    },
+    {
+      "id": "unilateral_termination",
+      "name": "일방적_계약해지",
+      "label": "일방적 계약 해지",
+      "description": "임대인에게만 유리한 계약 해지 조건",
+      "severity": "high"
+    },
+    {
+      "id": "repair_obligation",
+      "name": "수선의무_전가",
+      "label": "수선의무 전가",
+      "description": "임대인의 수선의무를 임차인에게 전가하는 조항",
+      "severity": "medium"
+    },
+    {
+      "id": "excessive_restoration",
+      "name": "원상복구_과다",
+      "label": "과도한 원상복구",
+      "description": "통상적인 범위를 초과하는 원상복구 의무",
+      "severity": "medium"
+    },
+    {
+      "id": "unlimited_rent_increase",
+      "name": "차임증액_무제한",
+      "label": "무제한 차임 인상",
+      "description": "차임 인상에 법적 제한(5%)을 초과하거나 제한이 없는 조항",
+      "severity": "high"
+    },
+    {
+      "id": "rights_restriction",
+      "name": "권리제한",
+      "label": "임차인 권리 제한",
+      "description": "임차인의 법적 권리를 부당하게 제한하는 조항",
+      "severity": "medium"
+    },
+    {
+      "id": "excessive_penalty",
+      "name": "위약금_과다",
+      "label": "과도한 위약금",
+      "description": "통상적인 범위를 초과하는 위약금 조항",
+      "severity": "high"
+    },
+    {
+      "id": "renewal_exclusion",
+      "name": "묵시적_갱신_배제",
+      "label": "묵시적 갱신 배제",
+      "description": "주택임대차보호법상 묵시적 갱신권을 배제하는 조항",
+      "severity": "high"
+    }
+  ]
+}

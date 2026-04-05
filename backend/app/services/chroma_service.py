@@ -1,0 +1,62 @@
+import chromadb
+from langchain_chroma import Chroma
+from langchain_core.documents import Document
+from backend.app.config import settings
+from backend.app.services.embedding_service import get_embeddings
+
+_vectorstore: Chroma | None = None
+_raw_client: chromadb.PersistentClient | None = None
+
+
+def _get_raw_client() -> chromadb.PersistentClient:
+    global _raw_client
+    if _raw_client is None:
+        _raw_client = chromadb.PersistentClient(path=settings.chroma_persist_dir)
+    return _raw_client
+
+
+def get_vectorstore() -> Chroma:
+    global _vectorstore
+    if _vectorstore is None:
+        _vectorstore = Chroma(
+            collection_name=settings.chroma_collection,
+            persist_directory=settings.chroma_persist_dir,
+            embedding_function=get_embeddings(),
+        )
+    return _vectorstore
+
+
+def add_documents(
+    ids: list[str],
+    documents: list[str],
+    metadatas: list[dict] | None = None,
+):
+    vs = get_vectorstore()
+    docs = [
+        Document(page_content=text, metadata=meta or {})
+        for text, meta in zip(documents, metadatas or [{}] * len(documents))
+    ]
+    vs.add_documents(docs, ids=ids)
+
+
+def query(query_text: str, k: int = 5) -> list[tuple[Document, float]]:
+    vs = get_vectorstore()
+    if len(vs.get()["ids"]) == 0:
+        return []
+    return vs.similarity_search_with_relevance_scores(query_text, k=k)
+
+
+def collection_status() -> dict:
+    """임베딩 모델 로딩 없이 ChromaDB 상태만 조회."""
+    try:
+        client = _get_raw_client()
+        collection = client.get_or_create_collection(settings.chroma_collection)
+        return {
+            "name": collection.name,
+            "count": collection.count(),
+        }
+    except Exception:
+        return {
+            "name": settings.chroma_collection,
+            "count": 0,
+        }
