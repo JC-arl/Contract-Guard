@@ -114,11 +114,24 @@ body {
   width: 100%;
 }
 
-/* 히어로 섹션 */
+/* 히어로 섹션 — 업로드 카드 포함 */
 .hero-section {
-  background: var(--primary);
-  padding: 4rem 2rem 3.5rem;
+  background: linear-gradient(160deg, #1a1a1a 0%, #2a2520 50%, #1a1a1a 100%);
+  padding: 4.5rem 2rem 3.5rem;
   text-align: center;
+  position: relative;
+  overflow: hidden;
+}
+
+.hero-section::before {
+  content: "";
+  position: absolute;
+  top: -40%;
+  right: -20%;
+  width: 500px;
+  height: 500px;
+  background: radial-gradient(circle, rgba(197, 165, 90, 0.06) 0%, transparent 70%);
+  pointer-events: none;
 }
 
 .hero-content {
@@ -127,21 +140,28 @@ body {
 }
 
 .hero-badge {
-  display: inline-block;
-  padding: 0.3rem 0.85rem;
-  background: rgba(197, 165, 90, 0.15);
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  padding: 0.35rem 0.95rem;
+  background: rgba(197, 165, 90, 0.12);
   color: var(--gold-light);
   font-size: 0.78rem;
   font-weight: 500;
   border-radius: 20px;
-  margin-bottom: 1.25rem;
+  margin-bottom: 1.5rem;
   letter-spacing: 0.01em;
+  border: 1px solid rgba(197, 165, 90, 0.15);
+}
+
+.hero-badge svg {
+  opacity: 0.7;
 }
 
 .hero-title {
   color: var(--white);
-  font-size: 2rem;
-  font-weight: 700;
+  font-size: 2.25rem;
+  font-weight: 800;
   line-height: 1.35;
   letter-spacing: -0.03em;
   margin-bottom: 1rem;
@@ -149,19 +169,36 @@ body {
 
 .hero-highlight {
   color: var(--gold);
+  position: relative;
 }
 
 .hero-desc {
-  color: rgba(255, 255, 255, 0.55);
+  color: rgba(255, 255, 255, 0.5);
   font-size: 0.92rem;
-  line-height: 1.7;
+  line-height: 1.75;
+  max-width: 420px;
+  margin: 0 auto;
+}
+
+/* 업로드 카드 — 히어로 안에 배치 */
+.hero-upload {
+  max-width: 520px;
+  margin: 2.5rem auto 0;
+}
+
+.upload-card {
+  background: var(--white);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+  border: 1px solid var(--border);
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.15);
 }
 
 /* 등장 애니메이션 */
 .fade-up {
   opacity: 0;
   transform: translateY(20px);
-  animation: fadeUp 0.7s ease forwards;
+  animation: fadeUp 0.6s cubic-bezier(0.22, 1, 0.36, 1) forwards;
 }
 
 @keyframes fadeUp {
@@ -171,28 +208,13 @@ body {
   }
 }
 
-
-/* 업로드 */
-.upload-section {
-  max-width: 580px;
-  margin: 2rem auto 0;
-  padding: 0 1.5rem;
-}
-
-.upload-card {
-  background: var(--white);
-  border-radius: var(--radius);
-  padding: 1.5rem;
-  border: 1px solid var(--border);
-}
-
 /* 파일 업로더 */
 .file-uploader {
-  border: 2px dashed var(--border);
+  border: 2px dashed rgba(197, 165, 90, 0.3);
   border-radius: var(--radius);
   padding: 2.5rem 2rem;
   cursor: pointer;
-  transition: border-color var(--transition), background var(--transition);
+  transition: all var(--transition);
   background: var(--bg-alt);
   text-align: center;
 }
@@ -201,6 +223,7 @@ body {
 .file-uploader.drag-active {
   border-color: var(--gold);
   background: var(--gold-dim);
+  transform: scale(1.005);
 }
 
 .file-uploader.disabled {
@@ -209,22 +232,22 @@ body {
 }
 
 .upload-icon-circle {
-  width: 52px;
-  height: 52px;
+  width: 56px;
+  height: 56px;
   border-radius: 50%;
   background: var(--gold-dim2);
   color: var(--gold);
   display: flex;
   align-items: center;
   justify-content: center;
-  margin: 0 auto 0.75rem;
+  margin: 0 auto 0.85rem;
 }
 
 .upload-main-text {
   font-size: 0.92rem;
-  font-weight: 500;
+  font-weight: 600;
   color: var(--text);
-  margin-bottom: 0.2rem;
+  margin-bottom: 0.25rem;
 }
 
 .upload-hint {
@@ -242,8 +265,8 @@ body {
 .file-icon-box {
   background: var(--risk-high);
   color: var(--white);
-  padding: 0.25rem 0.55rem;
-  border-radius: 4px;
+  padding: 0.3rem 0.6rem;
+  border-radius: 5px;
   font-size: 0.7rem;
   font-weight: 700;
   letter-spacing: 0.03em;
@@ -283,7 +306,7 @@ body {
 .loading-bar-fill {
   height: 100%;
   width: 30%;
-  background: var(--gold);
+  background: linear-gradient(90deg, var(--gold), var(--gold-light));
   border-radius: 2px;
   animation: loading-slide 1.8s ease-in-out infinite;
 }
@@ -326,13 +349,33 @@ body {
   flex-shrink: 0;
 }
 
-/* 기능 소개 */
+/* ===== 섹션 공통 ===== */
 .features-section {
   max-width: var(--max-w);
-  margin: 3rem auto 0;
+  margin: 3.5rem auto 0;
   padding: 0 1.5rem;
 }
 
+.section-title {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 1rem;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 1.5rem;
+  letter-spacing: -0.02em;
+}
+
+.section-title-line {
+  flex: 1;
+  max-width: 80px;
+  height: 1px;
+  background: var(--border);
+}
+
+/* 계약 유형 카드 */
 .features-grid {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -343,38 +386,109 @@ body {
   background: var(--white);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 1.5rem;
-  transition: border-color var(--transition), box-shadow var(--transition);
+  padding: 1.75rem 1.5rem;
+  transition: all 0.25s ease;
 }
 
 .feature-card:hover {
   border-color: var(--gold-light);
-  box-shadow: var(--shadow);
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+  transform: translateY(-2px);
 }
 
 .feature-icon-wrap {
-  width: 44px;
-  height: 44px;
-  border-radius: 10px;
-  background: var(--gold-dim2);
-  color: var(--gold);
+  width: 46px;
+  height: 46px;
+  border-radius: 12px;
   display: flex;
   align-items: center;
   justify-content: center;
   margin-bottom: 1rem;
 }
 
+.feature-icon-lease {
+  background: rgba(59, 130, 246, 0.1);
+  color: #3b82f6;
+}
+
+.feature-icon-sales {
+  background: rgba(16, 185, 129, 0.1);
+  color: #10b981;
+}
+
+.feature-icon-employ {
+  background: rgba(139, 92, 246, 0.1);
+  color: #8b5cf6;
+}
+
 .feature-card h3 {
-  font-size: 0.92rem;
-  font-weight: 600;
-  margin-bottom: 0.35rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+  margin-bottom: 0.5rem;
   color: var(--text);
 }
 
 .feature-card p {
   font-size: 0.8rem;
   color: var(--text-muted);
-  line-height: 1.5;
+  line-height: 1.6;
+}
+
+/* 분석 프로세스 */
+.process-section {
+  max-width: 720px;
+  margin: 3rem auto 3.5rem;
+  padding: 0 1.5rem;
+}
+
+.process-steps {
+  display: flex;
+  align-items: flex-start;
+  gap: 0;
+}
+
+.process-step {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.step-num {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: var(--primary);
+  color: var(--gold);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.82rem;
+  font-weight: 800;
+  margin-bottom: 0.85rem;
+  flex-shrink: 0;
+}
+
+.step-body h4 {
+  font-size: 0.88rem;
+  font-weight: 700;
+  color: var(--text);
+  margin-bottom: 0.3rem;
+}
+
+.step-body p {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+  line-height: 1.55;
+}
+
+.process-connector {
+  width: 40px;
+  height: 1px;
+  background: var(--border);
+  margin-top: 18px;
+  flex-shrink: 0;
 }
 
 /* ===== 결과 페이지 (분할 레이아웃) ===== */
@@ -929,6 +1043,17 @@ body {
     padding: 1.25rem;
   }
 
+  .process-steps {
+    flex-direction: column;
+    align-items: center;
+  }
+
+  .process-connector {
+    width: 1px;
+    height: 20px;
+    margin: 0;
+  }
+
   .doc-split-layout {
     grid-template-columns: 1fr;
   }
@@ -969,14 +1094,29 @@ body {
     font-size: 0.85rem;
   }
 
-  .upload-section {
-    padding: 0 1rem;
-    margin-top: 1.5rem;
+  .hero-upload {
+    max-width: 100%;
   }
 
   .features-section {
     padding: 0 1rem;
     margin-top: 2rem;
+  }
+
+  .process-section {
+    padding: 0 1rem;
+  }
+
+  .process-steps {
+    flex-direction: column;
+    align-items: center;
+    gap: 0;
+  }
+
+  .process-connector {
+    width: 1px;
+    height: 24px;
+    margin: 0;
   }
 
   .result-page {

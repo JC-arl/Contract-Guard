@@ -71,7 +71,7 @@ export default function FileUploader({ onFileSelect, disabled }) {
             </svg>
           </div>
           <p className="upload-main-text">PDF 파일을 드래그하거나 클릭하여 업로드</p>
-          <p className="upload-hint">임대차 계약서 PDF 파일만 지원됩니다</p>
+          <p className="upload-hint">계약서 PDF 파일을 업로드하면 유형을 자동 감지합니다</p>
         </div>
       )}
     </div>

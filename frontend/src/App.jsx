@@ -27,9 +27,9 @@ export default function App() {
         </main>
         <footer className="app-footer">
           <div className="footer-inner">
-            <span>K&H<sup>2</sup> Legal Contract Review Project</span>
+            <span>K&H<sup>2</sup> 계약서 속 독소조항 탐지 시스템</span>
             <span className="footer-dot">&middot;</span>
-            <span>AI Hub 데이터 기반 분석</span>
+            <span>AI 기반 법률 분석</span>
           </div>
         </footer>
       </div>
