@@ -10,71 +10,114 @@ from backend.app.rag.prompts import get_analysis_prompt, get_no_reference_contex
 
 logger = logging.getLogger(__name__)
 
+# Ollama 동시 요청 수 제한 (병목 방지)
+_LLM_SEMAPHORE = asyncio.Semaphore(3)
+MAX_RETRIES = 1
+# 개별 조항 LLM 호출 타임아웃 (초)
+PER_CLAUSE_TIMEOUT = 90
+
 
 def _strip_thinking(text: str) -> str:
-    """thinking 태그 내용을 제거하고 실제 응답만 반환."""
-    if "</think>" in text:
-        return text.split("</think>", 1)[1].strip()
-    if "<think>" in text:
-        return text.split("<think>", 1)[0].strip()
-    return text.strip()
+    """thinking 태그를 제거하되, 태그 안에 JSON이 있으면 보존."""
+    original = text
+
+    think_blocks = re.findall(r"<think>(.*?)</think>", text, re.DOTALL)
+    text_without_think = re.sub(r"<think>.*?</think>", "", text, flags=re.DOTALL)
+
+    if "<think>" in text_without_think:
+        after_think = text_without_think.split("<think>", 1)[1]
+        text_without_think = text_without_think.split("<think>", 1)[0]
+        think_blocks.append(after_think)
+
+    if "</think>" in text_without_think:
+        text_without_think = text_without_think.split("</think>", 1)[1]
+
+    cleaned = text_without_think.strip()
+
+    if cleaned and re.search(r"[\[{]", cleaned):
+        return cleaned
+
+    for block in think_blocks:
+        if re.search(r'"clause_index"|"risk_level"', block):
+            return block.strip()
+
+    return cleaned if cleaned else re.sub(r"</?think>", "", original).strip()
 
 
 def _clean_json_text(text: str) -> str:
     """JSON 파싱 전에 흔한 오류를 정리."""
-    # 마지막 쉼표 제거 (trailing comma)
+    # trailing comma 제거
     text = re.sub(r",\s*([}\]])", r"\1", text)
-    # 줄바꿈이 포함된 문자열 값 처리
+    # LLM이 객체를 } 대신 ] 로 닫는 패턴 교정
+    # e.g. "description":"..."],  → "description":"..."},
+    text = re.sub(r'"\s*\]\s*,\s*\[\s*"', '"},{"', text)  # "],["  → "},{"
+    text = re.sub(r'"\s*\]\s*,\s*\{\s*"', '"},{"', text)  # "],{"  → "},{"
+    text = re.sub(r'"\)\s*\]\s*,', '")},', text)           # )"],  → ")},
+    # 줄바꿈 제거
     text = text.replace("\n", " ")
     return text
+
+
+def _try_parse_json(text: str) -> list[dict] | None:
+    """JSON 텍스트를 파싱 시도. 성공 시 리스트 반환, 실패 시 None."""
+    for candidate in (text, _clean_json_text(text)):
+        try:
+            data = json.loads(candidate)
+            if isinstance(data, list):
+                return data
+            if isinstance(data, dict):
+                return [data]
+        except (json.JSONDecodeError, ValueError):
+            continue
+    return None
 
 
 def _extract_json_from_response(text: str) -> list[dict]:
     """응답 텍스트에서 JSON 배열을 추출. 여러 패턴을 시도."""
 
     # 1. 코드 블록 안의 JSON
-    code_block = re.search(r"```(?:json)?\s*(\[.*?\])\s*```", text, re.DOTALL)
+    code_block = re.search(r"```(?:json)?\s*([\[{].*?[}\]])\s*```", text, re.DOTALL)
     if code_block:
-        try:
-            return json.loads(_clean_json_text(code_block.group(1)))
-        except json.JSONDecodeError:
-            pass
+        parsed = _try_parse_json(code_block.group(1))
+        if parsed:
+            return parsed
 
-    # 2. 대괄호로 둘러싸인 JSON 배열 (가장 바깥쪽 매칭)
+    # 2. 그대로 파싱 시도 (정상 JSON)
+    parsed = _try_parse_json(text)
+    if parsed:
+        return parsed
+
+    # 3. 대괄호로 둘러싸인 JSON 배열
     bracket_match = re.search(r"\[.*\]", text, re.DOTALL)
     if bracket_match:
         raw = bracket_match.group(0)
-        # 그대로 시도
-        try:
-            return json.loads(raw)
-        except json.JSONDecodeError:
-            pass
-        # 정리 후 시도
-        try:
-            return json.loads(_clean_json_text(raw))
-        except json.JSONDecodeError:
-            pass
-        # 잘린 JSON 복구: 마지막 완성된 객체까지만 파싱
-        repaired = _repair_truncated_array(raw)
-        if repaired:
-            return repaired
+        parsed = _try_parse_json(raw)
+        if parsed:
+            return parsed
 
-    # 3. 개별 JSON 객체들 수집
-    objects = re.findall(r"\{[^{}]*(?:\{[^{}]*\}[^{}]*)*\}", text)
-    result = []
-    for obj_str in objects:
-        try:
-            obj = json.loads(obj_str)
-            if "clause_index" in obj or "risk_level" in obj:
-                result.append(obj)
-        except json.JSONDecodeError:
-            try:
-                obj = json.loads(_clean_json_text(obj_str))
-                if "clause_index" in obj or "risk_level" in obj:
-                    result.append(obj)
-            except json.JSONDecodeError:
-                continue
-    return result
+    # 4. 깨진 내부 배열 교정 후 재시도 (risks 배열이 깨진 경우)
+    fixed_text = re.sub(r'"risks"\s*:\s*\[.*?\]', '"risks":[]', text, flags=re.DOTALL)
+    parsed = _try_parse_json(fixed_text)
+    if parsed:
+        valid = [o for o in parsed if isinstance(o, dict) and ("clause_index" in o or "risk_level" in o)]
+        if valid:
+            return valid
+
+    # 5. 개별 완성된 JSON 객체 수집
+    results = _repair_truncated_array(text)
+    if results:
+        valid = [o for o in results if isinstance(o, dict) and ("clause_index" in o or "risk_level" in o)]
+        if valid:
+            return valid
+
+    # 6. 개별 객체에서도 깨진 배열 교정
+    results = _repair_truncated_array(fixed_text)
+    if results:
+        valid = [o for o in results if isinstance(o, dict) and ("clause_index" in o or "risk_level" in o)]
+        if valid:
+            return valid
+
+    return []
 
 
 def _repair_truncated_array(text: str) -> list[dict] | None:
@@ -91,21 +134,50 @@ def _repair_truncated_array(text: str) -> list[dict] | None:
         elif ch == "}":
             depth -= 1
             if depth == 0 and start is not None:
+                fragment = text[start:i + 1]
                 try:
-                    obj = json.loads(text[start:i + 1])
+                    obj = json.loads(fragment)
                     results.append(obj)
                 except json.JSONDecodeError:
-                    pass
+                    # 내부 배열이 깨진 경우, 깨진 배열을 제거 후 재시도
+                    obj = _try_fix_broken_object(fragment)
+                    if obj:
+                        results.append(obj)
                 start = None
 
     return results if results else None
+
+
+def _try_fix_broken_object(fragment: str) -> dict | None:
+    """JSON 객체 내부의 깨진 배열을 빈 배열로 대체하여 파싱 시도."""
+    # risks 배열이 깨진 경우: "risks":[...깨진내용...] → "risks":[]
+    fixed = re.sub(r'"risks"\s*:\s*\[.*?\]', '"risks":[]', fragment, flags=re.DOTALL)
+    for candidate in (fixed, _clean_json_text(fixed)):
+        try:
+            obj = json.loads(candidate)
+            if isinstance(obj, dict):
+                return obj
+        except (json.JSONDecodeError, ValueError):
+            continue
+    return None
+
+
+async def _invoke_llm(llm, messages) -> str:
+    """LLM 호출 후 응답 텍스트를 반환."""
+    response = await llm.ainvoke(messages)
+    text = response.content
+    if not text and hasattr(response, "text"):
+        text = response.text
+    if not text:
+        text = str(response)
+    return _strip_thinking(text)
 
 
 async def _analyze_single_clause(
     clause: Clause,
     contract_type: str = "lease",
 ) -> tuple[Clause, str, list[dict]]:
-    """단일 조항을 LLM으로 분석하고 (원본 조항, 응답 텍스트, 참고문헌) 반환."""
+    """단일 조항을 LLM으로 분석. 세마포어로 동시 요청 제한, 파싱 실패 시 1회 재시도."""
     references = retrieve_similar(clause.content, contract_type=contract_type)
 
     ref_text = format_references(references)
@@ -121,15 +193,33 @@ async def _analyze_single_clause(
         reference_context=ref_text,
     )
 
-    response = await llm.ainvoke(messages)
+    last_text = ""
+    for attempt in range(1 + MAX_RETRIES):
+        try:
+            async with _LLM_SEMAPHORE:
+                text = await asyncio.wait_for(
+                    _invoke_llm(llm, messages),
+                    timeout=PER_CLAUSE_TIMEOUT,
+                )
+        except asyncio.TimeoutError:
+            logger.warning(f"조항 {clause.index} 타임아웃 ({PER_CLAUSE_TIMEOUT}초, 시도 {attempt + 1})")
+            continue
 
-    text = response.content
-    if not text and hasattr(response, "text"):
-        text = response.text
-    if not text:
-        text = str(response)
+        if not text:
+            logger.warning(f"조항 {clause.index} 빈 응답 (시도 {attempt + 1})")
+            continue
 
-    return clause, _strip_thinking(text), references
+        parsed = _extract_json_from_response(text)
+        if parsed:
+            return clause, text, references
+
+        last_text = text
+        logger.warning(
+            f"조항 {clause.index} 파싱 실패 (시도 {attempt + 1}/{1 + MAX_RETRIES}). "
+            f"응답 앞부분: {text[:200]}"
+        )
+
+    return clause, last_text, references
 
 
 async def analyze_all_clauses(
@@ -158,7 +248,6 @@ async def analyze_all_clauses(
         if not parsed:
             logger.warning(f"조항 {clause.index} 파싱 실패. LLM 원문:\n{text[:500]}")
         else:
-            # 단일 조항 분석이므로 첫 번째 결과를 해당 조항에 강제 매핑
             result = parsed[0]
             result["clause_index"] = clause.index
             all_parsed.append(result)

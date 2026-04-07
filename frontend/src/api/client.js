@@ -2,7 +2,7 @@ import axios from "axios";
 
 const api = axios.create({
   baseURL: "/",
-  timeout: 300000, // 5분 (LLM 분석 시간 고려)
+  timeout: 600000, // 10분 (조항별 개별 LLM 분석 시간 고려)
 });
 
 // PDF 업로드 및 분석 요청

@@ -65,7 +65,7 @@ def _build_clause_analyses(
             risk_level = RiskLevel.SAFE
             confidence = 0.3
             risks = []
-            explanation = "분석 결과를 파싱하지 못했습니다."
+            explanation = "이 조항은 분석 과정에서 파싱에 실패하여 자동으로 안전(safe)으로 분류되었습니다. 실제 위험 여부는 직접 검토가 필요합니다."
 
         # 해당 조항 전용 참고문헌 사용
         clause_refs = per_clause_refs.get(clause.index, [])
