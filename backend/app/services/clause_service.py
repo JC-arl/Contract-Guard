@@ -18,21 +18,20 @@ def detect_contract_type(text: str) -> str:
 
 def split_clauses(text: str) -> list[Clause]:
     """계약서 텍스트를 조항 단위로 분리한다."""
-    pattern = r"(제\s*\d+\s*조(?:의\s*\d+)?[^\n]*)"
-    parts = re.split(pattern, text)
+    # 조항 헤더만 매칭: "제N조" 또는 "제N조 (제목)"
+    header_pattern = r"(제\s*\d+\s*조(?:의\s*\d+)?(?:\s*\([^)]*\))?)"
+    parts = re.split(header_pattern, text)
 
     clauses: list[Clause] = []
 
     i = 1
     while i < len(parts):
-        title_match = re.match(r"(제\s*(\d+)\s*조(?:의\s*\d+)?)\s*(.*)", parts[i].strip())
-        if title_match:
+        header_match = re.match(r"제\s*(\d+)\s*조", parts[i].strip())
+        if header_match:
             title = parts[i].strip()
-            content = parts[i + 1].strip() if i + 1 < len(parts) else ""
-            # 조항 번호를 인덱스로 사용 (제9조 → index 9)
-            clause_num = int(title_match.group(2))
-            # 한 줄짜리 조항은 title 자체가 content
-            full_content = f"{title}\n{content}" if content else title
+            body = parts[i + 1].strip() if i + 1 < len(parts) else ""
+            clause_num = int(header_match.group(1))
+            full_content = f"{title}\n{body}" if body else title
             clauses.append(Clause(index=clause_num, title=title, content=full_content))
             i += 2
         else:

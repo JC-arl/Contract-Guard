@@ -9,4 +9,3 @@ langchain-ollama
 langchain-huggingface
 sentence-transformers
 langchain-chroma
-

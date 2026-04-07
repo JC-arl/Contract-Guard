@@ -1,8 +1,13 @@
+import logging
 import uuid
+from difflib import SequenceMatcher
 from backend.app.models.clause import Clause
 from backend.app.models.risk import RiskLevel, RiskDetail
 from backend.app.models.analysis import ClauseAnalysis, AnalysisResult
 from backend.app.rag.chain import analyze_all_clauses
+from backend.app.contract_types import CONTRACT_TYPES
+
+logger = logging.getLogger(__name__)
 
 
 async def run_analysis(
@@ -15,7 +20,7 @@ async def run_analysis(
     parsed_list = result["parsed_list"]
     per_clause_refs = result["per_clause_refs"]
 
-    clause_analyses = _build_clause_analyses(parsed_list, clauses, per_clause_refs)
+    clause_analyses = _build_clause_analyses(parsed_list, clauses, per_clause_refs, contract_type)
 
     risky = [ca for ca in clause_analyses if ca.risk_level != RiskLevel.SAFE]
     summary = _generate_summary(clause_analyses, risky)
@@ -31,11 +36,37 @@ async def run_analysis(
     )
 
 
+def _normalize_risk_type(raw: str, valid_types: list[str]) -> str:
+    """LLM이 반환한 risk_type을 유효한 유형으로 매핑."""
+    raw_clean = raw.strip()
+    # 정확히 일치하면 그대로 반환
+    if raw_clean in valid_types:
+        return raw_clean
+    # 유사도 기반 매칭
+    best_match = None
+    best_score = 0.0
+    for vt in valid_types:
+        score = SequenceMatcher(None, raw_clean, vt).ratio()
+        if score > best_score:
+            best_score = score
+            best_match = vt
+    if best_match and best_score >= 0.4:
+        logger.info(f"risk_type 매핑: '{raw_clean}' → '{best_match}' (유사도: {best_score:.2f})")
+        return best_match
+    logger.warning(f"risk_type 매핑 실패: '{raw_clean}' (유효 유형: {valid_types})")
+    return raw_clean
+
+
 def _build_clause_analyses(
     parsed_list: list[dict],
     clauses: list[Clause],
     per_clause_refs: dict[int, list[dict]],
+    contract_type: str = "lease",
 ) -> list[ClauseAnalysis]:
+    # 계약 유형별 유효한 risk_type 목록
+    ct_config = CONTRACT_TYPES.get(contract_type, {})
+    valid_risk_types = ct_config.get("risk_types", [])
+
     # clause_index → parsed 매핑 (정확한 매칭만 사용)
     index_map = {}
     for item in parsed_list:
@@ -53,7 +84,7 @@ def _build_clause_analyses(
             raw_risks = parsed.get("risks", [])
             risks = [
                 RiskDetail(
-                    risk_type=r.get("risk_type", "unknown"),
+                    risk_type=_normalize_risk_type(r.get("risk_type", "unknown"), valid_risk_types) if valid_risk_types else r.get("risk_type", "unknown"),
                     description=r.get("description", ""),
                     suggestion=r.get("suggestion", ""),
                 )
@@ -62,10 +93,10 @@ def _build_clause_analyses(
             ]
             explanation = parsed.get("explanation", "")
         else:
-            risk_level = RiskLevel.SAFE
+            risk_level = RiskLevel.MEDIUM
             confidence = 0.3
             risks = []
-            explanation = "이 조항은 분석 과정에서 파싱에 실패하여 자동으로 안전(safe)으로 분류되었습니다. 실제 위험 여부는 직접 검토가 필요합니다."
+            explanation = "이 조항은 분석 과정에서 파싱에 실패하여 자동으로 중위험(medium)으로 분류되었습니다. 실제 위험 여부는 직접 검토가 필요합니다."
 
         # 해당 조항 전용 참고문헌 사용
         clause_refs = per_clause_refs.get(clause.index, [])
@@ -96,7 +127,7 @@ def _parse_risk_level(value: str) -> RiskLevel:
         "low": RiskLevel.LOW,
         "safe": RiskLevel.SAFE,
     }
-    return mapping.get(value.lower().strip(), RiskLevel.SAFE)
+    return mapping.get(value.lower().strip(), RiskLevel.MEDIUM)
 
 
 def _generate_summary(

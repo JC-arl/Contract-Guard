@@ -10,9 +10,10 @@ def get_llm() -> ChatOllama:
         _llm = ChatOllama(
             base_url=settings.ollama_base_url,
             model=settings.ollama_model_name,
-            temperature=0.3,
+            temperature=0,
+            seed=42,
             num_predict=4096,
-            num_ctx=8192,
+            num_ctx=16384,
             timeout=settings.ollama_timeout,
             think=False,
         )
