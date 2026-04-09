@@ -6,6 +6,7 @@ import re
 from backend.app.models.clause import Clause
 from backend.app.services.llm_service import get_llm
 from backend.app.services.retrieval_service import retrieve_similar
+from backend.app.services.rule_filter import check_safe_rule, check_high_rule
 from backend.app.rag.prompts import get_analysis_prompt, get_no_reference_context, format_references
 
 logger = logging.getLogger(__name__)
@@ -173,6 +174,32 @@ async def _invoke_llm(llm, messages) -> str:
     return _strip_thinking(text)
 
 
+def _rule_safe_result(clause: Clause, reason: str) -> dict:
+    """사전 safe 룰 매칭 시 LLM 호출 없이 반환할 결과."""
+    return {
+      "clause_index": clause.index,
+      "risk_level": "safe",
+      "confidence": 0.95,
+      "risks": [],
+      "explanation": f"[룰] {reason}",
+    }
+
+
+def _rule_high_result(clause: Clause, risk_type: str, reason: str) -> dict:
+    """사후 high 룰 매칭 시 LLM 결과를 교정할 때 사용."""
+    return {
+      "clause_index": clause.index,
+      "risk_level": "high",
+      "confidence": 0.95,
+      "risks": [{
+        "risk_type": risk_type,
+        "description": reason,
+        "suggestion": "해당 조항 삭제 또는 법정 기준에 맞게 재협상 필요",
+      }],
+      "explanation": f"[룰] {reason}",
+    }
+
+
 async def _analyze_single_clause(
     clause: Clause,
     contract_type: str = "lease",
@@ -226,34 +253,69 @@ async def analyze_all_clauses(
     clauses: list[Clause],
     contract_type: str = "lease",
 ) -> dict:
-    """전체 조항을 조항별 개별 LLM 호출로 분석."""
-    logger.info(f"LLM 분석 시작: {len(clauses)}개 조항 개별 분석 (유형: {contract_type})")
+    """전체 조항을 조항별 개별 LLM 호출로 분석.
 
-    tasks = [_analyze_single_clause(clause, contract_type) for clause in clauses]
-    responses = await asyncio.gather(*tasks, return_exceptions=True)
+    결정적 룰 레이어 적용 순서:
+      1. 사전 safe 룰 매칭 시 LLM 호출 없이 safe 확정
+      2. LLM 호출 후 사후 high 룰 매칭 시 high로 강제 교정
+    """
+    logger.info(f"LLM 분석 시작: {len(clauses)}개 조항 (유형: {contract_type})")
 
     all_parsed = []
     per_clause_refs: dict[int, list[dict]] = {}
 
+    # 1단계: 사전 safe 룰로 LLM 호출 대상 필터링
+    llm_target_clauses: list[Clause] = []
+    for clause in clauses:
+        is_safe, reason = check_safe_rule(clause, contract_type)
+        if is_safe:
+            all_parsed.append(_rule_safe_result(clause, reason))
+            per_clause_refs[clause.index] = []
+            logger.info(f"조항 {clause.index} 사전 safe 룰 매칭: {reason}")
+        else:
+            llm_target_clauses.append(clause)
+
+    logger.info(
+        f"사전 필터: {len(clauses) - len(llm_target_clauses)}개 safe 확정, "
+        f"{len(llm_target_clauses)}개 LLM 분석"
+    )
+
+    # 2단계: 남은 조항만 LLM 호출
+    tasks = [_analyze_single_clause(c, contract_type) for c in llm_target_clauses]
+    responses = await asyncio.gather(*tasks, return_exceptions=True)
+
     for i, resp in enumerate(responses):
+        clause = llm_target_clauses[i]
         if isinstance(resp, Exception):
-            logger.error(f"조항 {clauses[i].index} 분석 실패: {resp}")
+            logger.error(f"조항 {clause.index} 분석 실패: {resp}")
             continue
 
-        clause, text, refs = resp
+        _, text, refs = resp
         per_clause_refs[clause.index] = refs
 
         parsed = _extract_json_from_response(text)
 
         if not parsed:
             logger.warning(f"조항 {clause.index} 파싱 실패. LLM 원문:\n{text[:500]}")
-        else:
-            result = parsed[0]
-            result["clause_index"] = clause.index
-            all_parsed.append(result)
-            logger.info(f"조항 {clause.index} 파싱 성공")
+            continue
 
-    logger.info(f"총 {len(all_parsed)}/{len(clauses)}개 조항 파싱 완료")
+        result = parsed[0]
+        result["clause_index"] = clause.index
+
+        # 3단계: 사후 high 룰 교정 — LLM 판정이 safe/medium인데 명백한 high 패턴이면 high로 강제
+        is_high, risk_type, reason = check_high_rule(clause, contract_type)
+        llm_level = (result.get("risk_level") or "").lower().strip()
+        if is_high and llm_level not in ("high",):
+            logger.info(
+                f"조항 {clause.index} 사후 high 룰 교정: "
+                f"LLM={llm_level} → high ({reason})"
+            )
+            result = _rule_high_result(clause, risk_type, reason)
+
+        all_parsed.append(result)
+        logger.info(f"조항 {clause.index} 파싱 성공")
+
+    logger.info(f"총 {len(all_parsed)}/{len(clauses)}개 조항 완료")
 
     return {
         "parsed_list": all_parsed,

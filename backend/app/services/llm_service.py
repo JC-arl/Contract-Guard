@@ -15,7 +15,6 @@ def get_llm() -> ChatOllama:
             num_predict=4096,
             num_ctx=16384,
             timeout=settings.ollama_timeout,
-            think=False,
         )
     return _llm
 

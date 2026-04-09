@@ -1,5 +1,27 @@
 import { useState, useRef } from "react";
 
+// 지원 확장자 및 MIME 타입
+const ACCEPTED_EXTENSIONS = [".pdf", ".docx"];
+const ACCEPTED_MIME_TYPES = [
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+];
+
+function isAcceptedFile(file) {
+  if (!file) return false;
+  if (ACCEPTED_MIME_TYPES.includes(file.type)) return true;
+  // 일부 환경에서 MIME이 비어있는 경우 확장자로 폴백
+  const name = file.name?.toLowerCase() || "";
+  return ACCEPTED_EXTENSIONS.some((ext) => name.endsWith(ext));
+}
+
+function getFileLabel(file) {
+  const name = file.name?.toLowerCase() || "";
+  if (name.endsWith(".docx")) return "DOCX";
+  if (name.endsWith(".pdf")) return "PDF";
+  return "FILE";
+}
+
 export default function FileUploader({ onFileSelect, disabled }) {
   const [dragActive, setDragActive] = useState(false);
   const [selectedFile, setSelectedFile] = useState(null);
@@ -20,7 +42,7 @@ export default function FileUploader({ onFileSelect, disabled }) {
     e.stopPropagation();
     setDragActive(false);
     const file = e.dataTransfer.files?.[0];
-    if (file && file.type === "application/pdf") {
+    if (isAcceptedFile(file)) {
       setSelectedFile(file);
       onFileSelect(file);
     }
@@ -46,14 +68,14 @@ export default function FileUploader({ onFileSelect, disabled }) {
       <input
         ref={inputRef}
         type="file"
-        accept=".pdf"
+        accept={ACCEPTED_EXTENSIONS.join(",")}
         onChange={handleChange}
         style={{ display: "none" }}
         disabled={disabled}
       />
       {selectedFile ? (
         <div className="file-info">
-          <div className="file-icon-box">PDF</div>
+          <div className="file-icon-box">{getFileLabel(selectedFile)}</div>
           <div className="file-details">
             <span className="file-name">{selectedFile.name}</span>
             <span className="file-size">
@@ -70,8 +92,8 @@ export default function FileUploader({ onFileSelect, disabled }) {
               <line x1="12" y1="3" x2="12" y2="15" />
             </svg>
           </div>
-          <p className="upload-main-text">PDF 파일을 드래그하거나 클릭하여 업로드</p>
-          <p className="upload-hint">계약서 PDF 파일을 업로드하면 유형을 자동 감지합니다</p>
+          <p className="upload-main-text">PDF·DOCX 파일을 드래그하거나 클릭하여 업로드</p>
+          <p className="upload-hint">계약서 파일을 업로드하면 유형을 자동 감지합니다</p>
         </div>
       )}
     </div>

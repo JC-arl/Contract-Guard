@@ -3,6 +3,7 @@ uvicorn[standard]
 python-multipart
 pydantic-settings
 pymupdf
+python-docx
 python-dotenv
 langchain
 langchain-ollama

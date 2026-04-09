@@ -8,7 +8,7 @@ async def save_upload(file: UploadFile, document_id: str) -> str:
     upload_dir = Path(settings.upload_dir)
     upload_dir.mkdir(parents=True, exist_ok=True)
 
-    ext = Path(file.filename).suffix if file.filename else ".pdf"
+    ext = Path(file.filename).suffix.lower() if file.filename else ""
     file_path = upload_dir / f"{document_id}{ext}"
 
     content = await file.read()

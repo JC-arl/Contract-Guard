@@ -12,10 +12,10 @@ export default function UploadPage() {
   async function handleFileSelect(file) {
     setLoading(true);
     setError(null);
-    setProgress("PDF 업로드 및 분석 중...");
+    setProgress("문서 업로드 및 분석 중...");
 
     const steps = [
-      { msg: "PDF 텍스트 추출 중...", delay: 3000 },
+      { msg: "문서 텍스트 추출 중...", delay: 3000 },
       { msg: "계약 유형 자동 감지 중...", delay: 5000 },
       { msg: "관련 법률 및 판례 검색 중...", delay: 8000 },
       { msg: "AI 분석 진행 중... (잠시만 기다려주세요)", delay: 15000 },
@@ -143,7 +143,7 @@ export default function UploadPage() {
             <div className="step-num">1</div>
             <div className="step-body">
               <h4>조항 자동 분리</h4>
-              <p>PDF에서 조항을 자동 인식하여 개별 분석합니다</p>
+              <p>업로드한 문서에서 조항을 자동 인식하여 개별 분석합니다</p>
             </div>
           </div>
           <div className="process-connector" />
