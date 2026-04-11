@@ -190,19 +190,41 @@ async def _invoke_llm(llm, messages) -> str:
     return _strip_thinking(text)
 
 
+_SAFE_EXPLANATIONS = {
+    "목적물 식별 기재": "임대 목적물의 소재지와 면적을 특정하는 기본 기재 사항으로, 법적 위험이 없는 조항입니다.",
+    "단순 금액·납부일정 기재": "보증금, 차임 등 금액과 납부 일정을 기재한 조항으로, 특별한 위험 요소가 없습니다.",
+    "종료일 보증금 반환": "임대차 종료 시 보증금 반환을 규정한 조항으로, 임차인의 권리를 보장하는 내용입니다.",
+    "법정 증액 한도 준수": "주택임대차보호법 제7조에 따른 연 5% 이내 증액 한도를 준수하고 있어 안전합니다.",
+    "자연마모 제외": "통상적인 사용에 따른 자연마모를 원상복구 대상에서 제외하여 임차인을 보호하는 조항입니다.",
+    "법률상 당연한 전대 제한": "민법상 임대인의 동의 없는 전대·양도를 제한하는 것은 법률상 당연한 규정입니다.",
+    "법정 수선 의무 분담": "민법 제623조에 따라 주요 수선은 임대인, 소규모 수선은 임차인이 부담하는 합리적 분담입니다.",
+    "갱신요구권 인정": "임차인의 계약 갱신 요구권을 인정하는 조항으로, 임차인 보호에 부합합니다.",
+}
+
+_HIGH_EXPLANATIONS = {
+    "차임증액_무제한": "주택임대차보호법상 연 5% 한도를 초과하는 증액을 허용하고 있어, 임차인에게 과도한 부담이 될 수 있습니다.",
+    "보증금_미반환_위험": "보증금 반환이 지연되거나 거부될 수 있는 조건이 포함되어 있어, 임차인의 보증금 회수에 위험이 있습니다.",
+    "수선의무_전가": "임대인이 부담해야 할 수선 의무를 임차인에게 전가하고 있어, 민법 제623조에 반하는 불공정한 조항입니다.",
+    "권리제한": "임차인의 정당한 권리를 부당하게 제한하거나, 임대인에게 과도한 재량권을 부여하는 조항입니다.",
+    "묵시적_갱신_배제": "주택임대차보호법상 보장되는 묵시적 갱신 또는 갱신요구권을 배제하는 조항으로, 임차인에게 불리합니다.",
+}
+
+
 def _rule_safe_result(clause: Clause, reason: str) -> dict:
     """사전 safe 룰 매칭 시 LLM 호출 없이 반환할 결과."""
+    explanation = _SAFE_EXPLANATIONS.get(reason, f"해당 조항은 법률상 일반적인 내용으로, 특별한 위험 요소가 없습니다.")
     return {
       "clause_index": clause.index,
       "risk_level": "safe",
       "confidence": 0.95,
       "risks": [],
-      "explanation": f"[룰] {reason}",
+      "explanation": explanation,
     }
 
 
 def _rule_high_result(clause: Clause, risk_type: str, reason: str) -> dict:
     """사후 high 룰 매칭 시 LLM 결과를 교정할 때 사용."""
+    explanation = _HIGH_EXPLANATIONS.get(risk_type, reason)
     return {
       "clause_index": clause.index,
       "risk_level": "high",
@@ -212,7 +234,7 @@ def _rule_high_result(clause: Clause, risk_type: str, reason: str) -> dict:
         "description": reason,
         "suggestion": "해당 조항 삭제 또는 법정 기준에 맞게 재협상 필요",
       }],
-      "explanation": f"[룰] {reason}",
+      "explanation": explanation,
     }
 
 
@@ -318,10 +340,11 @@ async def analyze_all_clauses(
         result = parsed[0]
         result["clause_index"] = clause.index
 
-        # 3단계: 사후 high 룰 교정 — LLM 판정이 safe/medium인데 명백한 high 패턴이면 high로 강제
+        # 3단계: 사후 high 룰 교정 — LLM이 safe로 판정했지만 명백한 high 패턴이면 교정
+        # medium은 LLM의 판단을 존중 (맥락상 이유가 있을 수 있음)
         is_high, risk_type, reason = check_high_rule(clause, contract_type)
         llm_level = (result.get("risk_level") or "").lower().strip()
-        if is_high and llm_level not in ("high",):
+        if is_high and llm_level == "safe":
             logger.info(
                 f"조항 {clause.index} 사후 high 룰 교정: "
                 f"LLM={llm_level} → high ({reason})"
