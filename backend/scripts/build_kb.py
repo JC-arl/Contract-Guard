@@ -6,13 +6,19 @@
 
     # AI HUB 데이터 포함 (임대차)
     python -m backend.scripts.build_kb --data-dir data/raw/aihub
+
+    # legalize-kr 법률 본문 포함 (download_laws.py 선행 필요)
+    python -m backend.scripts.build_kb --include-laws --clear
 """
 
 import argparse
 import hashlib
 import json
+import re
 import shutil
 from pathlib import Path
+
+import yaml
 
 from backend.app.contract_types import CONTRACT_TYPES
 from backend.app.config import settings, DATA_DIR
@@ -252,6 +258,153 @@ def _load_judgment_data(data_path: Path) -> list[dict]:
     return items
 
 
+# ============================================================
+# 법률 본문 로더 (legalize-kr/legalize-kr 다운로드 결과 파싱)
+# ============================================================
+
+# 법률명 → 매핑할 contract_type 목록 (download_laws.py와 동기화)
+LAW_TO_CONTRACT_TYPES: dict[str, list[str]] = {
+    "주택임대차보호법": ["lease"],
+    "상가건물임대차보호법": ["lease"],
+    "민법": ["lease", "sales"],
+    "공인중개사법": ["sales"],
+    "부동산거래신고등에관한법률": ["sales"],
+    "근로기준법": ["employment"],
+    "최저임금법": ["employment"],
+    "기간제및단시간근로자보호등에관한법률": ["employment"],
+    "남녀고용평등과일ㆍ가정양립지원에관한법률": ["employment"],
+}
+
+# 민법은 전체가 너무 방대하므로 임대차편/매매편 조문 번호 범위로 라우팅
+# (민법 제2편 채권 - 제3장 매매 563~595, 제7장 임대차 618~654)
+MINBEOP_RANGES: dict[str, tuple[int, int]] = {
+    "lease": (618, 654),
+    "sales": (563, 595),
+}
+
+ARTICLE_HEADER_RE = re.compile(r"^#####\s+제(\d+)조(?:의(\d+))?\s*\(([^)]*)\)?")
+
+
+def _parse_law_markdown(md_text: str) -> tuple[dict, list[dict]]:
+    """법률 markdown을 (frontmatter, [{article_no, sub_no, title, body}]) 로 파싱."""
+    # YAML frontmatter 분리
+    if not md_text.startswith("---"):
+        return {}, []
+    parts = md_text.split("---", 2)
+    if len(parts) < 3:
+        return {}, []
+    try:
+        frontmatter = yaml.safe_load(parts[1]) or {}
+    except yaml.YAMLError:
+        frontmatter = {}
+    body = parts[2]
+
+    # `##### 제N조 (제목)` 헤더 단위로 split
+    lines = body.split("\n")
+    articles: list[dict] = []
+    current: dict | None = None
+    for line in lines:
+        m = ARTICLE_HEADER_RE.match(line)
+        if m:
+            if current and current["body"].strip():
+                articles.append(current)
+            article_no = int(m.group(1))
+            sub_no = int(m.group(2)) if m.group(2) else 0
+            title = m.group(3).strip()
+            current = {
+                "article_no": article_no,
+                "sub_no": sub_no,
+                "title": title,
+                "body": "",
+            }
+        elif current is not None:
+            # 부칙(##) 등에 도달하면 종료
+            if line.startswith("## ") or line.startswith("# "):
+                if current["body"].strip():
+                    articles.append(current)
+                current = None
+            else:
+                current["body"] += line + "\n"
+    if current and current["body"].strip():
+        articles.append(current)
+    return frontmatter, articles
+
+
+def _load_law_data(laws_dir: Path) -> list[dict]:
+    """backend/data/raw/laws/{법률명}/법률.md 파일들을 조문 단위 document로 변환."""
+    items: list[dict] = []
+    if not laws_dir.exists():
+        print(f"[INFO] 법률 디렉토리가 없습니다: {laws_dir} (download_laws.py 실행 필요)")
+        return items
+
+    for law_dir in sorted(laws_dir.iterdir()):
+        if not law_dir.is_dir():
+            continue
+        law_name = law_dir.name
+        if law_name not in LAW_TO_CONTRACT_TYPES:
+            print(f"  [SKIP] 매핑 없는 법률: {law_name}")
+            continue
+        md_file = law_dir / "법률.md"
+        if not md_file.exists():
+            print(f"  [SKIP] 법률.md 없음: {law_name}")
+            continue
+
+        md_text = md_file.read_text(encoding="utf-8")
+        frontmatter, articles = _parse_law_markdown(md_text)
+        if not articles:
+            print(f"  [WARN] 조문 파싱 실패: {law_name}")
+            continue
+
+        # 폐지 법률은 제외
+        status = str(frontmatter.get("상태", "시행")).strip()
+        if status and status != "시행":
+            print(f"  [SKIP] 비시행 법률: {law_name} (상태={status})")
+            continue
+
+        contract_types = LAW_TO_CONTRACT_TYPES[law_name]
+        siheng_date = frontmatter.get("시행일자", "")
+
+        per_law_count = {ct: 0 for ct in contract_types}
+        for art in articles:
+            art_no, sub_no, title, body = art["article_no"], art["sub_no"], art["title"], art["body"].strip()
+            if len(body) < 20:
+                continue
+
+            # contract_type 라우팅: 민법은 조문 번호 범위로 분리, 그 외는 전체 매핑
+            for ct in contract_types:
+                if law_name == "민법":
+                    lo, hi = MINBEOP_RANGES[ct]
+                    if not (lo <= art_no <= hi):
+                        continue
+
+                article_label = f"제{art_no}조" + (f"의{sub_no}" if sub_no else "")
+                header = f"[법률] {law_name} {article_label} ({title})"
+                # 본문 정규화: 연속 빈 줄 압축
+                body_norm = re.sub(r"\n{3,}", "\n\n", body)
+                combined = f"{header}\n{body_norm}"[:1500]
+
+                items.append({
+                    "id": _content_id(f"law-{ct}", combined),
+                    "text": combined,
+                    "metadata": {
+                        "source": "law",
+                        "law_name": law_name,
+                        "article_no": art_no,
+                        "sub_no": sub_no,
+                        "article_title": title,
+                        "contract_type": ct,
+                        "siheng_date": str(siheng_date),
+                    },
+                })
+                per_law_count[ct] += 1
+
+        for ct, cnt in per_law_count.items():
+            if cnt:
+                print(f"    법률 {ct}: {law_name} → {cnt}개 조문")
+
+    return items
+
+
 def load_aihub_data(data_dir: str) -> list[dict]:
     """AI HUB 법률 데이터에서 임대차 관련 항목을 추출."""
     data_path = Path(data_dir)
@@ -280,7 +433,7 @@ def load_aihub_data(data_dir: str) -> list[dict]:
     return clause_items + judgment_items
 
 
-def build_knowledge_base(data_dir: str | None = None, clear: bool = False):
+def build_knowledge_base(data_dir: str | None = None, clear: bool = False, include_laws: bool = False):
     if clear:
         chroma_dir = Path(settings.chroma_persist_dir)
         bm25_dir = Path(DATA_DIR) / "bm25"
@@ -309,6 +462,19 @@ def build_knowledge_base(data_dir: str | None = None, clear: bool = False):
         aihub_items = load_aihub_data(data_dir)
         print(f"  AI HUB 데이터: {len(aihub_items)}건")
         items.extend(aihub_items)
+
+    if include_laws:
+        laws_dir = Path(DATA_DIR) / "raw" / "laws"
+        print("  법률 본문 로딩 중...")
+        law_items = _load_law_data(laws_dir)
+        law_by_type: dict[str, int] = {}
+        for item in law_items:
+            ct = item["metadata"]["contract_type"]
+            law_by_type[ct] = law_by_type.get(ct, 0) + 1
+        for ct, cnt in law_by_type.items():
+            print(f"    법률 합계 {ct}: {cnt}건")
+        print(f"  법률 본문 데이터: {len(law_items)}건")
+        items.extend(law_items)
 
     # 동일 텍스트 중복 제거 (hash 기반 id 덕분에 가능)
     seen_ids = set()
@@ -362,5 +528,10 @@ if __name__ == "__main__":
         action="store_true",
         help="빌드 전에 기존 ChromaDB/BM25 인덱스를 삭제 (재빌드 시 권장)",
     )
+    parser.add_argument(
+        "--include-laws",
+        action="store_true",
+        help="backend/data/raw/laws/ 디렉토리의 법률 본문을 KB에 포함 (download_laws.py 선행)",
+    )
     args = parser.parse_args()
-    build_knowledge_base(data_dir=args.data_dir, clear=args.clear)
+    build_knowledge_base(data_dir=args.data_dir, clear=args.clear, include_laws=args.include_laws)
