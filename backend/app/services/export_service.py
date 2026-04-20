@@ -26,10 +26,15 @@ from backend.app.models.risk import RiskLevel
 logger = logging.getLogger(__name__)
 
 _KOREAN_FONT_CANDIDATES = [
+    # macOS
+    "/System/Library/Fonts/Supplemental/AppleGothic.ttf",
+    "/Library/Fonts/AppleGothic.ttf",
+    "/System/Library/Fonts/AppleSDGothicNeo.ttc",
+    # Linux
+    "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
+    # Windows
     "C:/Windows/Fonts/malgun.ttf",
     "C:/Windows/Fonts/malgunbd.ttf",
-    "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
-    "/Library/Fonts/AppleGothic.ttf",
 ]
 _PDF_FONT_NAME = "KoreanFont"
 _PDF_FONT_REGISTERED = False
@@ -43,7 +48,10 @@ def _ensure_korean_font_for_pdf() -> bool:
     for path in _KOREAN_FONT_CANDIDATES:
         if os.path.exists(path):
             try:
-                pdfmetrics.registerFont(TTFont(_PDF_FONT_NAME, path))
+                if path.endswith(".ttc"):
+                    pdfmetrics.registerFont(TTFont(_PDF_FONT_NAME, path, subfontIndex=0))
+                else:
+                    pdfmetrics.registerFont(TTFont(_PDF_FONT_NAME, path))
                 _PDF_FONT_REGISTERED = True
                 logger.info(f"PDF 한국어 폰트 등록: {path}")
                 return True
