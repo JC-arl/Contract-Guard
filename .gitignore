@@ -11,6 +11,7 @@ data/chroma/
 data/documents/
 data/*.pdf
 data/*.json
+data/*
 
 # Python
 __pycache__/
@@ -34,3 +35,5 @@ frontend/dist/
 .idea/
 *.swp
 *.swo
+
+.claude/*
