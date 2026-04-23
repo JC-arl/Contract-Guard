@@ -10,14 +10,18 @@ import asyncio
 import json
 import os
 import sys
+import time
 import unicodedata
+from datetime import datetime
 from pathlib import Path
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from backend.app.config import SUPPORTED_QUANTIZATIONS, settings
 from backend.app.models.clause import Clause
 from backend.app.rag.chain import analyze_all_clauses
+from backend.app.services.llm_service import switch_quantization_if_needed
 
 
 def _nfc(text: str) -> str:
@@ -84,11 +88,12 @@ def prediction_matches(risk_level: str, ground_truth: str) -> bool:
         return risk_level in ("high", "medium")
 
 
-async def run_validation(items: list[dict]) -> dict:
+async def run_validation(items: list[dict], save_detail: bool = True) -> dict:
     """검증 실행."""
     total = len(items)
     correct = 0
     results = []
+    t_start = time.perf_counter()
 
     # 오판 분석용
     false_safe = []  # 불리인데 safe/low로 판정 (놓친 위험)
@@ -150,11 +155,14 @@ async def run_validation(items: list[dict]) -> dict:
             "explanation": explanation[:100],
         })
 
+    elapsed = time.perf_counter() - t_start
+    sec_per_clause = elapsed / total if total > 0 else 0
     accuracy = correct / total if total > 0 else 0
 
     # 결과 요약
     print("\n" + "=" * 60)
     print(f"정확도: {correct}/{total} ({accuracy:.1%})")
+    print(f"소요시간: {elapsed:.1f}초 (조항당 평균 {sec_per_clause:.2f}초)")
 
     safe_items = [r for r in results if r["ground_truth"] == "safe"]
     risky_items = [r for r in results if r["ground_truth"] == "risky"]
@@ -185,33 +193,73 @@ async def run_validation(items: list[dict]) -> dict:
             print(f"  [{item['risk_level']}] {item['filename'][:35]}")
             print(f"    조항: {item['text'][:80]}...")
 
-    # 결과 파일 저장
-    output_path = PROJECT_ROOT / "data" / "validation_result.json"
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump({
-            "accuracy": accuracy,
-            "total": total,
-            "correct": correct,
-            "safe_accuracy": safe_correct / len(safe_items) if safe_items else 0,
-            "risky_accuracy": risky_correct / len(risky_items) if risky_items else 0,
-            "false_safe_count": len(false_safe),
-            "false_risky_count": len(false_risky),
-            "details": results,
-        }, f, ensure_ascii=False, indent=2)
-    print(f"\n상세 결과 저장: {output_path}")
+    summary = {
+        "accuracy": accuracy,
+        "total": total,
+        "correct": correct,
+        "safe_accuracy": safe_correct / len(safe_items) if safe_items else 0,
+        "risky_accuracy": risky_correct / len(risky_items) if risky_items else 0,
+        "false_safe_count": len(false_safe),
+        "false_risky_count": len(false_risky),
+        "total_sec": elapsed,
+        "sec_per_clause": sec_per_clause,
+    }
+
+    if save_detail:
+        output_path = PROJECT_ROOT / "data" / "validation_result.json"
+        with open(output_path, "w", encoding="utf-8") as f:
+            json.dump({**summary, "details": results}, f, ensure_ascii=False, indent=2)
+        print(f"\n상세 결과 저장: {output_path}")
 
     return {
-        "accuracy": accuracy,
+        **summary,
         "false_safe": false_safe,
         "false_risky": false_risky,
     }
 
 
-if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="AI Hub 데이터 기반 분석 정확도 검증")
-    parser.add_argument("--limit", type=int, default=0, help="검증 건수 제한 (0=전체)")
-    args = parser.parse_args()
+async def run_sweep(items: list[dict], tags: list[str]) -> dict:
+    """여러 양자화 수준을 순회하며 동일 검증셋으로 측정."""
+    sweep_results: dict[str, dict] = {}
+    for tag in tags:
+        print("\n" + "#" * 60)
+        print(f"# 양자화 수준: {tag}")
+        print("#" * 60)
+        await switch_quantization_if_needed(tag)
+        result = await run_validation(items, save_detail=False)
+        sweep_results[tag] = {
+            "active_model": settings.ollama_model_name,
+            "accuracy": result["accuracy"],
+            "safe_accuracy": result["safe_accuracy"],
+            "risky_accuracy": result["risky_accuracy"],
+            "false_safe_count": result["false_safe_count"],
+            "false_risky_count": result["false_risky_count"],
+            "total_sec": result["total_sec"],
+            "sec_per_clause": result["sec_per_clause"],
+        }
 
+    print("\n" + "=" * 72)
+    print("스윕 비교 결과")
+    print("=" * 72)
+    header = f"{'tag':<10}{'accuracy':>10}{'safe_acc':>10}{'risky_acc':>12}{'sec/clause':>14}{'total_sec':>12}"
+    print(header)
+    print("-" * 72)
+    for tag, r in sweep_results.items():
+        print(
+            f"{tag:<10}{r['accuracy']:>10.1%}{r['safe_accuracy']:>10.1%}"
+            f"{r['risky_accuracy']:>12.1%}{r['sec_per_clause']:>14.2f}{r['total_sec']:>12.1f}"
+        )
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    output_path = PROJECT_ROOT / "data" / f"validation_sweep_{timestamp}.json"
+    output_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump({"sweep": sweep_results, "sample_size": len(items)}, f, ensure_ascii=False, indent=2)
+    print(f"\n스윕 결과 저장: {output_path}")
+    return sweep_results
+
+
+async def _main(args) -> None:
     items = load_validation_set()
     print(f"검증 데이터 로드: {len(items)}건")
     print(f"  유리(safe): {sum(1 for i in items if i['ground_truth']=='safe')}건")
@@ -219,10 +267,41 @@ if __name__ == "__main__":
 
     if args.limit > 0:
         # 유리/불리 균형 맞춰서 샘플링
-        safe_items = [i for i in items if i["ground_truth"] == "safe"]
-        risky_items = [i for i in items if i["ground_truth"] == "risky"]
+        safe_items_all = [i for i in items if i["ground_truth"] == "safe"]
+        risky_items_all = [i for i in items if i["ground_truth"] == "risky"]
         half = args.limit // 2
-        items = safe_items[:half] + risky_items[:args.limit - half]
+        items = safe_items_all[:half] + risky_items_all[:args.limit - half]
         print(f"  -> {len(items)}건으로 제한")
 
-    asyncio.run(run_validation(items))
+    if args.sweep:
+        tags = [t.strip() for t in args.sweep.split(",") if t.strip()]
+        invalid = [t for t in tags if t not in SUPPORTED_QUANTIZATIONS]
+        if invalid:
+            raise SystemExit(
+                f"지원하지 않는 양자화 수준: {invalid}. 허용 값: {list(SUPPORTED_QUANTIZATIONS)}"
+            )
+        await run_sweep(items, tags)
+        return
+
+    if args.quantization:
+        await switch_quantization_if_needed(args.quantization)
+
+    await run_validation(items)
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser(description="AI Hub 데이터 기반 분석 정확도 검증")
+    parser.add_argument("--limit", type=int, default=0, help="검증 건수 제한 (0=전체)")
+    parser.add_argument(
+        "--quantization",
+        default=None,
+        help=f"단일 검증용 양자화 태그. 허용: {list(SUPPORTED_QUANTIZATIONS)}",
+    )
+    parser.add_argument(
+        "--sweep",
+        default=None,
+        help="쉼표로 구분한 양자화 태그 목록 (예: q2_K,q4_K_M,q8_0). 지정 시 --quantization 무시",
+    )
+    args = parser.parse_args()
+
+    asyncio.run(_main(args))

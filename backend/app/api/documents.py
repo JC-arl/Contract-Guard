@@ -1,8 +1,10 @@
 import uuid
 from pathlib import Path
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException
+from backend.app.config import SUPPORTED_QUANTIZATIONS
 from backend.app.models.analysis import AnalysisResponse
 from backend.app.services import document_service, clause_service, analysis_service
+from backend.app.services.llm_service import switch_quantization_if_needed
 from backend.app.utils.file_utils import save_upload
 
 router = APIRouter()
@@ -11,7 +13,20 @@ router = APIRouter()
 @router.post("/documents/upload", response_model=AnalysisResponse)
 async def upload_and_analyze(
     file: UploadFile = File(...),
+    quantization: str | None = Form(None),
 ):
+    if quantization and quantization not in SUPPORTED_QUANTIZATIONS:
+        raise HTTPException(
+            status_code=422,
+            detail=f"지원하지 않는 양자화 수준입니다. 허용 값: {list(SUPPORTED_QUANTIZATIONS)}",
+        )
+
+    if quantization:
+        try:
+            await switch_quantization_if_needed(quantization)
+        except ValueError as e:
+            raise HTTPException(status_code=422, detail=str(e))
+
     if not file.filename:
         raise HTTPException(status_code=400, detail="파일명이 없습니다.")
 

@@ -1,7 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.app.api import health, documents, analyses, kb
+from backend.app.api import health, documents, analyses, kb, model
 
 app = FastAPI(title="K&H2", version="0.1.0")
 
@@ -17,3 +17,4 @@ app.include_router(health.router)
 app.include_router(documents.router, prefix="/api")
 app.include_router(analyses.router, prefix="/api")
 app.include_router(kb.router, prefix="/api")
+app.include_router(model.router, prefix="/api")
