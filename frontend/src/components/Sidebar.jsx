@@ -38,7 +38,7 @@ function stripExtension(filename) {
   return idx > 0 ? filename.slice(0, idx) : filename;
 }
 
-export default function Sidebar() {
+export default function Sidebar({ isOpen = true }) {
   const navigate = useNavigate();
   const { analysisId: currentId } = useParams();
   const { items, loading, error, refresh, remove } = useAnalyses();
@@ -62,7 +62,10 @@ export default function Sidebar() {
   };
 
   return (
-    <aside className="sidebar">
+    <aside
+      className={`sidebar${isOpen ? "" : " sidebar--collapsed"}`}
+      aria-hidden={!isOpen}
+    >
       <div className="sidebar-header">
         <span className="sidebar-title">분석 이력</span>
         <button

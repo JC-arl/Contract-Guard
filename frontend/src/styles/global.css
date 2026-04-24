@@ -73,6 +73,35 @@ body {
   transition: box-shadow 0.3s ease;
 }
 
+/* 사이드바 토글 버튼 — 제미나이 스타일로 좌상단에 고정 노출 */
+.sidebar-toggle {
+  position: absolute;
+  left: 1rem;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 40px;
+  height: 40px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-sub);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: background var(--transition), color var(--transition);
+  z-index: 2;
+}
+
+.sidebar-toggle:hover {
+  background: var(--gold-dim);
+  color: var(--gold);
+}
+
+.sidebar-toggle:active {
+  transform: translateY(-50%) scale(0.96);
+}
+
 .app-header:hover {
   box-shadow: 0 2px 20px rgba(0, 0, 0, 0.04);
 }
