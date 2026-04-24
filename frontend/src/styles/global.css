@@ -73,14 +73,11 @@ body {
   transition: box-shadow 0.3s ease;
 }
 
-/* 사이드바 토글 버튼 — 제미나이 스타일로 좌상단에 고정 노출 */
+/* 사이드바 토글 버튼 — 헤더 좌측에 상시 노출 (제미나이 스타일) */
 .sidebar-toggle {
-  position: absolute;
-  left: 1rem;
-  top: 50%;
-  transform: translateY(-50%);
   width: 40px;
   height: 40px;
+  margin-right: 0.75rem;
   background: transparent;
   border: none;
   border-radius: var(--radius-sm);
@@ -89,8 +86,8 @@ body {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  transition: background var(--transition), color var(--transition);
-  z-index: 2;
+  transition: background var(--transition), color var(--transition), transform var(--transition);
+  flex-shrink: 0;
 }
 
 .sidebar-toggle:hover {
@@ -99,7 +96,7 @@ body {
 }
 
 .sidebar-toggle:active {
-  transform: translateY(-50%) scale(0.96);
+  transform: scale(0.96);
 }
 
 .app-header:hover {
@@ -144,6 +141,13 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  transition: width 0.25s ease, border-right-color 0.25s ease;
+}
+
+/* 접힘 상태 — 폭 0으로 축소하고 테두리도 제거해 레이아웃을 완전히 넘겨준다 */
+.sidebar.sidebar--collapsed {
+  width: 0;
+  border-right-color: transparent;
 }
 
 .sidebar-header {
