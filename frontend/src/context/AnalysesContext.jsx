@@ -15,8 +15,14 @@ export function AnalysesProvider({ children }) {
       const data = await listAnalyses();
       setItems(Array.isArray(data) ? data : []);
     } catch (e) {
-      setError(e?.message || "분석 이력을 불러오지 못했습니다.");
-      setItems([]);
+      // 404는 "아직 이력이 없음"으로 간주해 빈 상태 UI로 폴백.
+      // 5xx·네트워크 오류 등만 사용자에게 노출.
+      if (e?.response?.status === 404) {
+        setItems([]);
+      } else {
+        setError("분석 이력을 불러오지 못했습니다.");
+        setItems([]);
+      }
     } finally {
       setLoading(false);
     }
