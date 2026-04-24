@@ -4,14 +4,11 @@ import FileUploader from "../components/FileUploader";
 import { uploadDocument, fetchKbStatus } from "../api/client";
 import { useAnalyses } from "../context/AnalysesContext";
 
-// 백엔드 SUPPORTED_QUANTIZATIONS 와 동기화. 사용자용 라벨과 권장 하드웨어 힌트 병기.
+// 백엔드 SUPPORTED_QUANTIZATIONS 와 동기화. Ollama 레지스트리 실재 태그만 노출.
 const QUANTIZATION_OPTIONS = [
-  { value: "none", label: "최고 정확도 (양자화 없음)" },
-  { value: "q2_K", label: "빠름 (저사양 PC 권장)" },
-  { value: "q3_K_M", label: "빠름·균형" },
   { value: "q4_K_M", label: "균형 (기본)" },
-  { value: "q5_K_M", label: "정확·균형" },
   { value: "q8_0", label: "정확 (고사양 권장)" },
+  { value: "fp16", label: "최고 정확도 (양자화 없음)" },
 ];
 const DEFAULT_QUANTIZATION = "q4_K_M";
 
