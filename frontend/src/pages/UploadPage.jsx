@@ -5,6 +5,7 @@ import { uploadDocument, fetchKbStatus } from "../api/client";
 
 // 백엔드 SUPPORTED_QUANTIZATIONS 와 동기화. 사용자용 라벨과 권장 하드웨어 힌트 병기.
 const QUANTIZATION_OPTIONS = [
+  { value: "none", label: "최고 정확도 (양자화 없음)" },
   { value: "q2_K", label: "빠름 (저사양 PC 권장)" },
   { value: "q3_K_M", label: "빠름·균형" },
   { value: "q4_K_M", label: "균형 (기본)" },

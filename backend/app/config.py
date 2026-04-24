@@ -6,8 +6,10 @@ BASE_DIR = Path(__file__).resolve().parent.parent.parent
 DATA_DIR = BASE_DIR / "data"
 
 # 런타임에 전환 가능한 Ollama 양자화 태그 목록.
-# Ollama 레지스트리의 exaone3.5:7.8b-instruct-<tag> 형식을 그대로 사용한다.
+# Ollama 레지스트리의 exaone3.5:7.8b-instruct-<tag> 형식을 사용하며,
+# "none"은 태그 없는 원본 모델(exaone3.5:7.8b)을 의미한다.
 SUPPORTED_QUANTIZATIONS: tuple[str, ...] = (
+    "none",
     "q2_K",
     "q3_K_M",
     "q4_K_M",
@@ -57,7 +59,7 @@ class Settings(BaseSettings):
         if self.ollama_model_name_override:
             return self.ollama_model_name_override
         tag = (self.llm_quantization or "").strip()
-        if not tag or tag.lower() == "default":
+        if not tag or tag.lower() in ("default", "none"):
             return self.llm_base_model
         return f"{self.llm_base_model}-instruct-{tag}"
 

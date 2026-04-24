@@ -9,6 +9,7 @@ set -euo pipefail
 
 BASE_MODEL="${LLM_BASE_MODEL:-exaone3.5:7.8b}"
 TAGS=(
+  "none"
   "q2_K"
   "q3_K_M"
   "q4_K_M"
@@ -17,7 +18,11 @@ TAGS=(
 )
 
 for tag in "${TAGS[@]}"; do
-  full="${BASE_MODEL}-instruct-${tag}"
+  if [[ "${tag}" == "none" ]]; then
+    full="${BASE_MODEL}"
+  else
+    full="${BASE_MODEL}-instruct-${tag}"
+  fi
   echo "==> ollama pull ${full}"
   ollama pull "${full}"
 done
