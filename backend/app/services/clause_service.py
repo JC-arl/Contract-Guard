@@ -85,7 +85,14 @@ def split_clauses(text: str) -> list[Clause]:
     main_text, special_items = _extract_special_terms(text)
 
     # 조항 헤더만 매칭: "제N조" 또는 "제N조 (제목)"
-    header_pattern = r"(제\s*\d+\s*조(?:의\s*\d+)?(?:\s*\([^)]*\))?)"
+    # 줄 시작 앵커(MULTILINE `^`)로 본문 내 참조 오탐 1차 방지
+    # PDF 줄바꿈으로 본문 참조("제3조\n를 위반")가 줄 시작에 오는 경우까지 막기 위해
+    # 뒤에 조사(를/을/은/는/이/가/의/와/과/도/만/에/로 등)가 오면 negative lookahead로 제외
+    header_pattern = (
+        r"(?m)^\s*"
+        r"(제\s*\d+\s*조(?:의\s*\d+)?(?:\s*[\(\[][^)\]]*[\)\]])?)"
+        r"(?!\s*(?:를|을|은|는|이|가|의|와|과|도|만|에|에서|에게|로|으로|부터|까지|마저|조차|라|라는|라고|보다))"
+    )
     parts = re.split(header_pattern, main_text)
 
     clauses: list[Clause] = []
