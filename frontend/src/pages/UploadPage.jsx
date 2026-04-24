@@ -3,6 +3,16 @@ import { useNavigate } from "react-router-dom";
 import FileUploader from "../components/FileUploader";
 import { uploadDocument, fetchKbStatus } from "../api/client";
 
+// 백엔드 SUPPORTED_QUANTIZATIONS 와 동기화. 사용자용 라벨과 권장 하드웨어 힌트 병기.
+const QUANTIZATION_OPTIONS = [
+  { value: "q2_K", label: "빠름 (저사양 PC 권장)" },
+  { value: "q3_K_M", label: "빠름·균형" },
+  { value: "q4_K_M", label: "균형 (기본)" },
+  { value: "q5_K_M", label: "정확·균형" },
+  { value: "q8_0", label: "정확 (고사양 권장)" },
+];
+const DEFAULT_QUANTIZATION = "q4_K_M";
+
 // target 값까지 0에서 ease-out으로 카운트업 애니메이션. requestAnimationFrame 기반.
 function useCountUp(target, durationMs = 1600) {
   const [value, setValue] = useState(0);
@@ -119,6 +129,7 @@ export default function UploadPage() {
   const [error, setError] = useState(null);
   const [progress, setProgress] = useState("");
   const [kbStats, setKbStats] = useState({ total: 0, laws: 0, judgments: 0, clauses: 0 });
+  const [quantization, setQuantization] = useState(DEFAULT_QUANTIZATION);
   const navigate = useNavigate();
 
   // KB 통계 1회 fetch — 실패해도 카드는 0으로 표시되어 페이지가 망가지지는 않음
@@ -149,7 +160,7 @@ export default function UploadPage() {
     );
 
     try {
-      const data = await uploadDocument(file);
+      const data = await uploadDocument(file, quantization);
       if (data.status === "completed" && data.result) {
         // URL에 analysisId를 포함시켜 새로고침/직접접근 복원이 가능하도록 한다
         const id = data.result.id;
@@ -197,6 +208,27 @@ export default function UploadPage() {
 
         <div className="hero-upload fade-up" style={{ animationDelay: "0.5s" }}>
           <div className="upload-card">
+            <div className="quant-select">
+              <label className="quant-select__label" htmlFor="quantization-select">
+                분석 정밀도
+              </label>
+              <select
+                id="quantization-select"
+                className="quant-select__input"
+                value={quantization}
+                onChange={(e) => setQuantization(e.target.value)}
+                disabled={loading}
+              >
+                {QUANTIZATION_OPTIONS.map((opt) => (
+                  <option key={opt.value} value={opt.value}>
+                    {opt.label}
+                  </option>
+                ))}
+              </select>
+              <p className="quant-select__hint">
+                낮을수록 빠르고, 높을수록 정확합니다. 기본값은 균형입니다.
+              </p>
+            </div>
             <FileUploader onFileSelect={handleFileSelect} disabled={loading} />
 
             {loading && (

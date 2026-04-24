@@ -6,12 +6,20 @@ const api = axios.create({
 });
 
 // 계약서 파일 업로드 및 분석 요청 (PDF, DOCX)
-export async function uploadDocument(file) {
+// quantization 이 지정되면 백엔드가 해당 수준으로 LLM을 교체한 뒤 분석한다.
+export async function uploadDocument(file, quantization) {
   const formData = new FormData();
   formData.append("file", file);
+  if (quantization) formData.append("quantization", quantization);
   const response = await api.post("/api/documents/upload", formData, {
     headers: { "Content-Type": "multipart/form-data" },
   });
+  return response.data;
+}
+
+// 현재 활성 모델 및 지원되는 양자화 수준 목록 조회
+export async function fetchModelInfo() {
+  const response = await api.get("/api/model");
   return response.data;
 }
 

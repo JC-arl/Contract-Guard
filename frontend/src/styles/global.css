@@ -2762,3 +2762,50 @@ body {
 .agg-refs-cited-btn:hover {
   background: var(--gold-dim);
 }
+
+/* ===== 양자화 수준 드롭다운 (업로드 카드) ===== */
+.quant-select {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 14px;
+}
+.quant-select__label {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--text-sub);
+  letter-spacing: 0.01em;
+}
+.quant-select__input {
+  appearance: none;
+  -webkit-appearance: none;
+  padding: 10px 36px 10px 14px;
+  font-size: 0.95rem;
+  font-family: inherit;
+  color: var(--text);
+  background-color: var(--white);
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%23c5a55a' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'><polyline points='6 9 12 15 18 9'/></svg>");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: border-color var(--transition), box-shadow var(--transition);
+}
+.quant-select__input:hover:not(:disabled) {
+  border-color: var(--gold-dim2);
+}
+.quant-select__input:focus {
+  outline: none;
+  border-color: var(--gold);
+  box-shadow: 0 0 0 3px var(--gold-dim);
+}
+.quant-select__input:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  background-color: var(--bg-alt);
+}
+.quant-select__hint {
+  font-size: 0.78rem;
+  color: var(--text-muted);
+}
