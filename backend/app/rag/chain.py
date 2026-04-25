@@ -68,14 +68,104 @@ def _split_clause_into_items(content: str) -> list[str]:
     return []
 
 
+# 짧은 특약·자유서술 조항은 키워드 기반 query expansion으로 RAG recall 향상
+# (특약 본문이 30자 미만이면 보수적, 100자 미만이면 보통, 그 이상이면 미적용)
+_SHORT_CLAUSE_THRESHOLD = 100
+
+# 도메인별 query expansion 사전 — 본문에 trigger 키워드가 있으면 해당 법령·쟁점 키워드 추가
+_QUERY_EXPANSION: dict[str, list[tuple[str, str]]] = {
+    "lease": [
+        # (본문에 등장하면, 추가할 검색 키워드)
+        ("청소비", "원상복구 임차인 부담 비용 약관규제법 부당"),
+        ("관리비", "관리비 산정 내역 공개 임대인 일방 결정"),
+        ("중개보수", "중개보수 부담 공인중개사법 임차인 부담"),
+        ("이사", "묵시적 갱신 해지 통지 3개월 임차인 해지권 주임법 제6조의2"),
+        ("새로운 임차인", "묵시적 갱신 해지 통지 3개월 임차인 해지권 주임법 제6조의2"),
+        ("반려동물", "특약 약관규제법 임차인 권리제한"),
+        ("흡연", "특약 임차인 생활 제한"),
+        ("쓰레기", "관리 의무 임차인 부담"),
+        ("연체", "차임연체 해지 주임법 제6조의2 민법 제640조 2기"),
+        ("해지", "차임연체 해지 주임법 제6조의2 민법 제640조"),
+        ("전대", "민법 제629조 무단 전대 임차권 양도"),
+        ("양도", "민법 제629조 무단 전대 임차권 양도"),
+        ("원상회복", "원상복구 자연마모 통상 사용 판례"),
+        ("원상복구", "원상복구 자연마모 통상 사용 판례"),
+        ("계약금", "민법 제565조 해약금 배액상환 포기"),
+        ("증액", "주임법 제7조 차임증감청구권 5%"),
+        ("보증금", "보증금 반환 우선변제권 주임법 제3조의2"),
+    ],
+    "sales": [
+        ("하자", "민법 제580조 하자담보책임 매도인 6개월"),
+        ("계약금", "민법 제565조 해약금 배액상환 포기"),
+        ("소유권이전", "동시이행 민법 제536조 이전등기"),
+        ("근저당", "근저당 말소 매도인 부담"),
+    ],
+    "employment": [
+        ("위약금", "근로기준법 제20조 위약예정 금지"),
+        ("해고", "근로기준법 제23조 정당사유 제26조 30일 예고"),
+        ("연차", "근로기준법 제60조 연차유급휴가"),
+        ("퇴직", "퇴직급여보장법 제8조 1년 30일분"),
+        ("경업", "경업금지 합리적 범위 보상"),
+        ("비밀유지", "영업비밀 합리적 범위"),
+    ],
+    "service": [
+        ("대금", "하도급법 제13조 60일 대금 지급"),
+        ("검수", "검수 기간 통지 의무 이의제기"),
+        ("지식재산", "산출물 저작권 보상"),
+        ("하자", "민법 제667조 수급인 담보책임 1년"),
+    ],
+    "loan": [
+        ("이자", "이자제한법 제2조 연 20% 한도"),
+        ("기한이익", "기한이익 상실 통지 시정 기회"),
+        ("보증", "보증인보호특별법 서면 보증 최고액"),
+        ("중도상환", "중도상환 수수료 변제 자유"),
+    ],
+}
+
+
+def _expand_query_for_short_clause(clause: Clause, contract_type: str) -> str:
+    """짧은 특약·자유서술 조항에 대해 키워드 기반 query expansion 적용.
+
+    원본 본문에 trigger 키워드가 등장하면 관련 법령·쟁점 키워드를 추가하여
+    RAG 검색 recall을 높인다. 길이 임계 미만이거나 trigger 미매칭이면 원본 그대로.
+    """
+    body = clause.content
+    if len(body) >= _SHORT_CLAUSE_THRESHOLD and "특약" not in clause.title:
+        return body
+
+    expansions = _QUERY_EXPANSION.get(contract_type, [])
+    if not expansions:
+        return body
+
+    extra_keywords: list[str] = []
+    for trigger, keywords in expansions:
+        if trigger in body and keywords not in extra_keywords:
+            extra_keywords.append(keywords)
+
+    if not extra_keywords:
+        return body
+
+    expanded = body + "\n[검색키워드] " + " ".join(extra_keywords)
+    logger.info(
+        f"[retrieve] 조항 {clause.index} query expansion: "
+        f"+{len(extra_keywords)}개 키워드 그룹 ({len(body)}자 → {len(expanded)}자)"
+    )
+    return expanded
+
+
 def _retrieve_for_clause(clause: Clause, contract_type: str) -> list[dict]:
-    """다중 항 조항이면 항별 검색 후 union, 단일 항이면 기존 방식."""
+    """다중 항 조항이면 항별 검색 후 union, 단일 항이면 기존 방식.
+
+    짧은 특약·자유서술 조항은 query expansion으로 검색 recall 향상.
+    """
     items = _split_clause_into_items(clause.content)
     if not items:
+        # 짧은 조항·특약은 query expansion 적용
+        query_text = _expand_query_for_short_clause(clause, contract_type)
         logger.info(
             f"[retrieve] 조항 {clause.index} 단일항 처리 (content {len(clause.content)}자)"
         )
-        return retrieve_similar(clause.content, contract_type=contract_type)
+        return retrieve_similar(query_text, contract_type=contract_type)
     logger.info(
         f"[retrieve] 조항 {clause.index} 항 분할 적용: {len(items)}개 항"
     )
@@ -90,6 +180,46 @@ def _retrieve_for_clause(clause: Clause, contract_type: str) -> list[dict]:
             seen_ids.add(ref_id)
             merged.append(ref)
     return merged
+
+
+# 임대차 sub-type별 적용 법령 hint — 분석 프롬프트의 reference_context 앞에 prepend
+_LEASE_SUBTYPE_HINTS = {
+    "residential": (
+        "## 적용 법령 힌트 (반드시 준수)\n"
+        "이 계약은 주거용 부동산 임대차로 판단됩니다. **주택임대차보호법(주임법)**이 우선 적용됩니다.\n"
+        "- 차임 연체 해지: 주임법 제6조의2 / 민법 제640조 — **2기** 연체 시 해지 가능 (법대로의 기준)\n"
+        "- 묵시적 갱신: 임차인은 언제든 해지 통지 가능, 통지 후 3개월 후 효력 (주임법 제6조의2)\n"
+        "- 차임 증액: 약정 차임의 5% 이내 (주임법 제7조)\n"
+        "- 임차권등기명령·우선변제권: 주임법 제3조·제3조의2\n"
+        "- 갱신요구권: 임차인은 1회 갱신 요구 가능 (주임법 제6조의3)\n"
+        "조항 내용이 위 법률 기준과 동일하면 위험으로 평가하지 마세요. 상가건물임대차보호법(상임법, 3기 기준)은 **적용되지 않습니다**.\n"
+    ),
+    "commercial": (
+        "## 적용 법령 힌트 (반드시 준수)\n"
+        "이 계약은 영업용·상가건물 임대차로 판단됩니다. **상가건물 임대차보호법(상임법)**이 우선 적용됩니다.\n"
+        "- 차임 연체 해지: 상임법 제10조의8 — **3기** 연체 시 해지 가능. 2기 연체 해지 조항은 임차인에게 불리(상임법 위반).\n"
+        "- 갱신요구권: 임차인은 최초 임대차 기간 포함 10년까지 갱신 요구 가능 (상임법 제10조)\n"
+        "- 권리금 회수기회 보호: 상임법 제10조의4\n"
+        "- 차임 증액: 약정 차임의 5% 이내 (상임법 제11조)\n"
+        "조항 내용이 위 법률 기준과 동일하면 위험으로 평가하지 마세요. 주택임대차보호법(주임법, 2기 기준)은 **적용되지 않습니다**.\n"
+    ),
+}
+
+
+def _build_reference_context(
+    references: list[dict],
+    contract_type: str,
+    sub_type: str | None,
+) -> str:
+    """RAG 참고 자료 텍스트 + sub-type hint를 결합."""
+    ref_text = format_references(references)
+    if not ref_text:
+        ref_text = get_no_reference_context(contract_type)
+
+    # 임대차 sub-type hint를 reference 앞에 prepend
+    if contract_type == "lease" and sub_type in _LEASE_SUBTYPE_HINTS:
+        return _LEASE_SUBTYPE_HINTS[sub_type] + "\n" + ref_text
+    return ref_text
 
 
 def _strip_thinking(text: str) -> str:
@@ -318,6 +448,7 @@ async def _analyze_single_clause(
     clause: Clause,
     contract_type: str = "lease",
     parties: dict[str, str] | None = None,
+    sub_type: str | None = None,
 ) -> tuple[Clause, str, list[dict], str]:
     """단일 조항을 LLM으로 분석. 세마포어로 동시 요청 제한, 파싱 실패 시 1회 재시도.
 
@@ -326,9 +457,7 @@ async def _analyze_single_clause(
     """
     references = _retrieve_for_clause(clause, contract_type)
 
-    ref_text = format_references(references)
-    if not ref_text:
-        ref_text = get_no_reference_context(contract_type)
+    ref_text = _build_reference_context(references, contract_type, sub_type)
 
     clauses_text = f"\n[{clause.index}] {clause.title}: {clause.content}\n"
 
@@ -377,6 +506,7 @@ async def analyze_all_clauses(
     clauses: list[Clause],
     contract_type: str = "lease",
     parties: dict[str, str] | None = None,
+    sub_type: str | None = None,
 ) -> dict:
     """전체 조항을 조항별 개별 LLM 호출로 분석.
 
@@ -384,7 +514,10 @@ async def analyze_all_clauses(
       1. 사전 safe 룰 매칭 시 LLM 호출 없이 safe 확정
       2. LLM 호출 후 사후 high 룰 매칭 시 high로 강제 교정
     """
-    logger.info(f"LLM 분석 시작: {len(clauses)}개 조항 (유형: {contract_type})")
+    sub_label = f"/{sub_type}" if sub_type else ""
+    logger.info(
+        f"LLM 분석 시작: {len(clauses)}개 조항 (유형: {contract_type}{sub_label})"
+    )
 
     all_parsed = []
     per_clause_refs: dict[int, list[dict]] = {}
@@ -416,7 +549,10 @@ async def analyze_all_clauses(
     )
 
     # 2단계: 남은 조항만 LLM 호출
-    tasks = [_analyze_single_clause(c, contract_type, parties) for c in llm_target_clauses]
+    tasks = [
+        _analyze_single_clause(c, contract_type, parties, sub_type)
+        for c in llm_target_clauses
+    ]
     responses = await asyncio.gather(*tasks, return_exceptions=True)
 
     for i, resp in enumerate(responses):

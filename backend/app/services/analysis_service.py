@@ -21,11 +21,13 @@ async def run_analysis(
     clauses: list[Clause],
     contract_type: str = "lease",
     parties: dict[str, str] | None = None,
+    sub_type: str | None = None,
 ) -> AnalysisResult:
     result = await analyze_all_clauses(
         clauses,
         contract_type=contract_type,
         parties=parties,
+        sub_type=sub_type,
     )
     parsed_list = result["parsed_list"]
     per_clause_refs = result["per_clause_refs"]

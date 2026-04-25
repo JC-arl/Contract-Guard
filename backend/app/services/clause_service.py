@@ -20,6 +20,45 @@ def detect_contract_type(text: str) -> str:
     return max(scores, key=scores.get)
 
 
+# 임대차 sub-type 감지용 키워드 — lease 안에서 적용 법령 분기 (주택/상가)
+# 주택임대차: 주임법 적용 (차임연체 2기, 갱신요구권 1회 등)
+# 상가건물임대차: 상임법 적용 (차임연체 3기, 갱신요구권 10년 등)
+# 일반 건물/토지 임대차: 민법만 적용 (서브타입 hint 없음)
+_RESIDENTIAL_KEYWORDS = [
+    "주택", "주거", "주거용", "아파트", "빌라", "오피스텔", "원룸", "투룸",
+    "다가구", "다세대", "전세", "월세",
+    # "주택 외 일부를 영업용으로 사용" 같은 케이스도 주거로 분류 (주임법 적용)
+]
+
+_COMMERCIAL_KEYWORDS = [
+    "상가", "점포", "사무실", "사업장", "영업용", "영업장", "영업소",
+    "상업용", "사무용", "근린생활시설", "사업자등록", "영업개시", "권리금",
+]
+
+
+def detect_lease_subtype(text: str) -> str | None:
+    """임대차 계약의 세부 유형을 감지한다.
+
+    주임법(주택)과 상임법(상가건물)은 적용 기준이 다르므로 (예: 차임연체 2기 vs 3기,
+    갱신요구권 등) LLM이 정확한 법령을 적용할 수 있도록 hint를 제공한다.
+
+    Returns:
+        "residential" (주택), "commercial" (상가건물), 또는 None (분류 불가).
+        contract_type이 lease가 아니거나 양쪽 시그널이 모두 약하면 None.
+    """
+    res_score = sum(text.count(kw) for kw in _RESIDENTIAL_KEYWORDS)
+    com_score = sum(text.count(kw) for kw in _COMMERCIAL_KEYWORDS)
+
+    if res_score == 0 and com_score == 0:
+        return None
+    if res_score >= com_score * 2:
+        return "residential"
+    if com_score >= res_score * 2:
+        return "commercial"
+    # 양쪽 시그널이 비등하면 분류 보류 (LLM이 보수적으로 판단하도록)
+    return None
+
+
 # 계약 유형별 표준 갑/을 매핑 (대다수 한국 계약서의 관례)
 _DEFAULT_PARTIES = {
     "lease": {"갑": "임대인", "을": "임차인"},

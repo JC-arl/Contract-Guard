@@ -33,6 +33,11 @@ async def upload_and_analyze(
 
     contract_type = clause_service.detect_contract_type(text)
     parties = clause_service.detect_parties(text, contract_type)
+    sub_type = (
+        clause_service.detect_lease_subtype(text)
+        if contract_type == "lease"
+        else None
+    )
 
     clauses = clause_service.split_clauses(text)
     if not clauses:
@@ -44,6 +49,7 @@ async def upload_and_analyze(
         clauses=clauses,
         contract_type=contract_type,
         parties=parties,
+        sub_type=sub_type,
     )
 
     return AnalysisResponse(status="completed", result=result)
