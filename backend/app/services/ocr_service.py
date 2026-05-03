@@ -31,11 +31,17 @@ def get_ocr():
         from paddleocr import PaddleOCR
 
         use_gpu = settings.ocr_device.lower() == "gpu"
+        # 휴대폰 촬영 계약서처럼 미세 흐림·종이 굴곡이 있는 입력에서 detection 누락을 줄이기 위한 튜닝.
+        # 기본값(0.5 / 1.6 / 0.3)은 깔끔한 스캔 기준이라 사진 입력에선 본문 작은 글씨를 자주 놓친다.
+        # 임계 완화 → 박스 검출 증가(트레이드오프: false positive 약간 증가).
         _ocr = PaddleOCR(
             use_angle_cls=settings.ocr_use_angle_cls,
             lang=settings.ocr_lang,
             use_gpu=use_gpu,
             show_log=False,
+            det_db_thresh=0.2,         # 픽셀 임계 (default 0.3)
+            det_db_box_thresh=0.3,     # 박스 채택 임계 (default 0.5)
+            det_db_unclip_ratio=2.0,   # 박스 확장 비율 (default 1.6)
         )
     return _ocr
 

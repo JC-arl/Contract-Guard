@@ -46,7 +46,7 @@ class Settings(BaseSettings):
     ocr_lang: str = "korean"
     ocr_use_angle_cls: bool = True
     # 큰 이미지(예: 4000px 이상)는 비율 유지 다운샘플 — 정확도 손실 적고 속도/메모리 안정.
-    ocr_max_image_dim: int = 4096
+    ocr_max_image_dim: int = 5120
     # 업로드 원본/오버레이 PNG 저장 위치. 미가공 폴더와 분리해 정리·삭제가 쉽도록 함.
     ocr_dir: str = str(DATA_DIR / "ocr")
     # 한국어 라벨 합성용 폰트. OpenCV putText는 한글 미지원이라 PIL+TrueType 사용.
