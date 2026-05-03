@@ -16,7 +16,7 @@ reportlab
 
 # OCR (PaddleOCR) — 이미지 계약서 텍스트 추출.
 # paddlepaddle-gpu 는 CUDA 환경 전제. CPU 만 쓰는 환경이라면 이 줄을 paddlepaddle 로 바꿔 설치.
-paddleocr>=2.7
+paddleocr
 paddlepaddle-gpu
 Pillow
 opencv-python-headless

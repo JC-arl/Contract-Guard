@@ -46,15 +46,28 @@ def reset_ocr() -> None:
     _ocr = None
 
 
+# 한글 합성용 폰트 후보 — settings.ocr_font_path 가 없을 때 운영체제 기본 폰트를 시도.
+# OpenCV putText 는 한글 미지원이고 PIL load_default 도 라틴만 그릴 수 있어
+# 한글이 들어오면 □ 로 깨지므로 시스템 한글 폰트를 폴백으로 둔다.
+_FONT_FALLBACKS = (
+    r"C:\Windows\Fonts\malgun.ttf",                            # Windows 맑은 고딕
+    r"C:\Windows\Fonts\NanumGothic.ttf",                       # Windows 나눔고딕
+    "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",         # Ubuntu
+    "/System/Library/Fonts/AppleSDGothicNeo.ttc",              # macOS
+)
+
+
 def _get_font(size: int) -> ImageFont.FreeTypeFont:
     """폰트 객체 캐시. truetype 로딩이 비싸므로 size 별로 보관."""
     if size not in _font_cache:
-        font_path = settings.ocr_font_path
-        try:
-            _font_cache[size] = ImageFont.truetype(font_path, size)
-        except OSError:
-            # 폰트 누락 시 PIL 기본 폰트로 폴백 (한글은 깨질 수 있음).
-            _font_cache[size] = ImageFont.load_default()
+        for path in (settings.ocr_font_path, *_FONT_FALLBACKS):
+            try:
+                _font_cache[size] = ImageFont.truetype(path, size)
+                break
+            except OSError:
+                continue
+        else:
+            _font_cache[size] = ImageFont.load_default()  # 한글 깨짐 가능
     return _font_cache[size]
 
 
