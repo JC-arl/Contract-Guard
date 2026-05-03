@@ -15,6 +15,17 @@ export async function uploadDocument(file) {
   return response.data;
 }
 
+// OCR 검증 — 이미지에서 텍스트와 박스 좌표를 추출. 분석 파이프라인과 분리된 엔드포인트.
+// 응답: { document_id, image_url, overlay_url, result: { width, height, elapsed_ms, boxes:[{poly,text,score}] } }
+export async function uploadOcrImage(file) {
+  const formData = new FormData();
+  formData.append("file", file);
+  const response = await api.post("/api/ocr/test", formData, {
+    headers: { "Content-Type": "multipart/form-data" },
+  });
+  return response.data;
+}
+
 // 지식베이스 통계 조회 (홈 화면 카운트업 애니메이션용)
 export async function fetchKbStatus() {
   const response = await api.get("/api/kb/status");
