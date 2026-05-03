@@ -2,6 +2,7 @@ import { useState } from "react";
 import { BrowserRouter, Routes, Route, useNavigate } from "react-router-dom";
 import UploadPage from "./pages/UploadPage";
 import ResultPage from "./pages/ResultPage";
+import OcrTestPage from "./pages/OcrTestPage";
 import Sidebar from "./components/Sidebar";
 import { AnalysesProvider } from "./context/AnalysesContext";
 
@@ -49,6 +50,8 @@ function AppShell() {
             <Route path="/" element={<UploadPage />} />
             <Route path="/result" element={<ResultPage />} />
             <Route path="/result/:analysisId" element={<ResultPage />} />
+            {/* OCR 검증 전용 — 진입 버튼 없음. URL 직접 접근(/ocr-test)으로만 사용. */}
+            <Route path="/ocr-test" element={<OcrTestPage />} />
           </Routes>
         </main>
       </div>
