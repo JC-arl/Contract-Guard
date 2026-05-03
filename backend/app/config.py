@@ -39,6 +39,21 @@ class Settings(BaseSettings):
     documents_dir: str = str(DATA_DIR / "documents")
     results_dir: str = str(DATA_DIR / "results")
 
+    # OCR (PaddleOCR) — 사진/스캔본 계약서에서 텍스트를 추출하기 위한 검증용 파이프라인.
+    # device: "gpu" | "cpu" — paddlepaddle-gpu 단일 설치를 전제로 하되, CUDA 미가용 환경에서는
+    # OCR_DEVICE=cpu 로 바꿔 use_gpu=False 로 강제할 수 있다.
+    ocr_device: str = "gpu"
+    ocr_lang: str = "korean"
+    ocr_use_angle_cls: bool = True
+    # 큰 이미지(예: 4000px 이상)는 비율 유지 다운샘플 — 정확도 손실 적고 속도/메모리 안정.
+    ocr_max_image_dim: int = 2000
+    # 업로드 원본/오버레이 PNG 저장 위치. 미가공 폴더와 분리해 정리·삭제가 쉽도록 함.
+    ocr_dir: str = str(DATA_DIR / "ocr")
+    # 한국어 라벨 합성용 폰트. OpenCV putText는 한글 미지원이라 PIL+TrueType 사용.
+    ocr_font_path: str = str(BASE_DIR / "backend" / "app" / "assets" / "fonts" / "NotoSansKR-Regular.ttf")
+    # 업로드 단계 게이트 (Pillow decompression bomb 방지)
+    ocr_max_upload_mb: int = 10
+
     model_config = {"env_file": str(BASE_DIR / ".env"), "extra": "ignore"}
 
 
