@@ -34,6 +34,10 @@ def get_ocr():
         # 휴대폰 촬영 계약서처럼 미세 흐림·종이 굴곡이 있는 입력에서 detection 누락을 줄이기 위한 튜닝.
         # 기본값(0.5 / 1.6 / 0.3)은 깔끔한 스캔 기준이라 사진 입력에선 본문 작은 글씨를 자주 놓친다.
         # 임계 완화 → 박스 검출 증가(트레이드오프: false positive 약간 증가).
+        # det_limit_side_len: PaddleOCR 가 detection 단계에서 입력 이미지를 내부적으로 재축소하는 상한.
+        # 기본 960 이라 ocr_max_image_dim 을 4096 으로 올려도 detection 단에서 다시 960 으로 줄어들어
+        # 본문 작은 글씨가 픽셀 단위로 뭉개진다. 사진 입력 계약서는 2048~2560 권장.
+        # 트레이드오프: detection 시간이 (값/960)^2 비례로 증가 (GPU 면 견딜 만, CPU 면 페이지당 10~20초).
         _ocr = PaddleOCR(
             use_angle_cls=settings.ocr_use_angle_cls,
             lang=settings.ocr_lang,
@@ -42,6 +46,9 @@ def get_ocr():
             det_db_thresh=0.2,         # 픽셀 임계 (default 0.3)
             det_db_box_thresh=0.3,     # 박스 채택 임계 (default 0.5)
             det_db_unclip_ratio=2.0,   # 박스 확장 비율 (default 1.6)
+            det_db_score_mode='slow',  # 점수 계산 방식 (default 'fast', 'slow' 는 작은 글씨 인식 개선)
+            det_limit_side_len=2560,   # detection 입력 상한 (default 960) — 작은 글씨 누락 핵심 해결
+            det_limit_type='max',      # 긴 변 기준 ('min' 이면 짧은 변 기준)
         )
     return _ocr
 
