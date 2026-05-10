@@ -27,7 +27,7 @@ async def upload_and_analyze(
 
     file_path = await save_upload(file, document_id)
 
-    text, page_count = document_service.extract_text(file_path)
+    text, _page_count = document_service.extract_text(file_path)
     if not text.strip():
         raise HTTPException(status_code=422, detail="문서에서 텍스트를 추출할 수 없습니다.")
 

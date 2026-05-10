@@ -344,7 +344,7 @@ def retrieve_similar(
     # BM25 검색 — 원점수는 [0, 무제한]이라 벡터 유사도(0~1)와 동일 척도가 아니다.
     # score / (score + C) 매핑으로 일반 BM25 범위(5~60)에서 0.38~0.88로 매핑.
     # 단, BM25는 어휘 빈도 매칭이라 의미 무관해도 일반 어휘 겹침으로 점수가 나올 수 있어
-    # 표시용 통합 similarity 계산 시 단일 source면 패널티 적용 (아래 _merge_source_scores).
+    # 표시용 통합 similarity 계산 시 단일 source면 패널티 적용 (_finalize_display_score 참조).
     bm25_raw = bm25_service.search(text, k=pool_k, contract_type=contract_type)
     bm25_results: list[tuple[str, dict]] = []
     BM25_SCALE_C = 8.0

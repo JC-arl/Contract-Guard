@@ -13,9 +13,9 @@ from pathlib import Path
 from xml.sax.saxutils import escape as xml_escape
 
 from docx import Document
-from docx.shared import Pt, RGBColor, Cm
+from docx.shared import Pt
 from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import cm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont

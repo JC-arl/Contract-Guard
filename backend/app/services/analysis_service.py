@@ -303,11 +303,13 @@ def _build_clause_analyses(
             explanation = parsed.get("explanation", "")
             analysis_status = parsed.get("_status", "ok")
 
-            # 증거 기반 필터링 — quote 검증된 risks만 채택. quote 없으면 환각 가능성.
-            # 다만 LLM 비결정성으로 진짜 위험이 quote만 빠뜨려 잘못 차단될 수 있어
-            # 본문에서 위험 시그널 자동 추출 폴백으로 false-negative를 줄인다.
-            # 룰 기반 결과(_status="kb_high"/"kb_safe"/룰 매칭)는 신뢰성 검증된 출처라 예외.
-            llm_origin = analysis_status not in ("kb_high", "kb_safe", "missing")
+            # 증거 기반 필터링 — LLM 환각 방지.
+            # 위험 판정인데 quote가 본문 substring으로 검증 안 되면 환각 가능성이 높다.
+            # LLM 비결정성으로 진짜 위험이 quote만 빠뜨릴 수 있어, 본문에서 위험 시그널을
+            # 자동 추출하는 폴백으로 false-negative를 줄인다.
+            # 룰/KB classifier 결과는 결정적 출처라 환각 검증 대상에서 제외한다.
+            TRUSTED_STATUSES = ("rule_high", "rule_safe", "kb_high", "kb_safe", "missing")
+            llm_origin = analysis_status not in TRUSTED_STATUSES
             if llm_origin and risk_level in (RiskLevel.HIGH, RiskLevel.MEDIUM):
                 # 1차: quote가 비어있는 risk에 대해 본문에서 위험 시그널 자동 추출 시도
                 for r in risks:

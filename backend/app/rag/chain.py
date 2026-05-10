@@ -38,9 +38,8 @@ def _dump_parse_failure(clause_index: int, status: str, text: str) -> str:
 # Ollama 동시 요청 수 제한 (병목 방지)
 _LLM_SEMAPHORE = asyncio.Semaphore(3)
 MAX_RETRIES = 1
-# 개별 조항 LLM 호출 타임아웃 (초)
-# 프롬프트에 explanation 3단 구조(조항 인용 + 법률 비교 + 구체적 결과) 가이드 추가로
-# 추론 토큰이 증가하여 90초 → 120초로 상향. 일부 복잡한 다중 항 조항이 안정적으로 완료되도록 함.
+# 개별 조항 LLM 호출 타임아웃 (초). explanation 3단 추론(조항 인용 + 법률 비교 + 결과)
+# 으로 다중 항(項) 조항은 추론 토큰이 많아 90초 한계로는 부족 — 120초가 안정선.
 PER_CLAUSE_TIMEOUT = 120
 
 # 다중 항(項) 분리용 정규식. ①②③ 또는 "1." / "1)" 형태의 리스트 마커.
