@@ -31,51 +31,91 @@
 
 ## 🏗️ 시스템 아키텍처
 
-![Architecture](docs/architecture.png)
+### 전체 구성
+
+```mermaid
+flowchart TB
+    User([사용자])
+    subgraph FE [Frontend · React + Vite]
+        UI[UploadPage / ResultPage / Sidebar]
+    end
+    subgraph BE [Backend · FastAPI]
+        API[REST API · /api/documents · /api/analyses]
+        ORCH[analysis_service · 분석 오케스트레이션]
+        CHAIN[rag/chain · 룰→KB→LLM 흐름]
+        RETR[retrieval_service · BM25 + 벡터 + RRF]
+        RULE[rule_filter · 결정적 패턴]
+        EXP[export_service · DOCX/PDF/HWPX]
+    end
+    subgraph AI [AI Layer]
+        LLM[(Ollama · EXAONE 3.5 7.8B)]
+        EMB[(KURE-v1 임베딩)]
+        RR[(Reranker · 옵션)]
+    end
+    subgraph DATA [Data Layer]
+        CHROMA[(ChromaDB · 벡터)]
+        BM25IDX[(BM25 인덱스 · pkl)]
+        KB[(KB · 23,902건<br/>law · judgment · safe · unfair)]
+    end
+    User --> UI --> API --> ORCH
+    ORCH --> CHAIN
+    CHAIN --> RULE
+    CHAIN --> RETR --> CHROMA
+    RETR --> BM25IDX
+    RETR -.옵션.-> RR
+    CHROMA --> EMB
+    CHAIN --> LLM
+    KB --> CHROMA
+    KB --> BM25IDX
+    ORCH --> EXP
+    EXP --> User
+```
 
 ### 분석 파이프라인 (조항당)
 
-```
-조항 본문
-   ↓
-[1단계] 룰 매칭 (rule_filter)
-   - safe 정형 표현 → rule_safe (즉시 안전)
-   - high 위반 패턴 → rule_high (즉시 법률 위반)
-   ↓ (회색지대만)
-[2단계] KB 임베딩 분류
-   - sim ≥ 0.85 + unfair 매칭 → kb_high
-   - sim ≥ 0.88 + law/safe 매칭 → kb_safe
-   ↓ (여전히 회색지대만)
-[3단계] LLM 분석 (EXAONE 3.5 7.8B + RAG)
-   - risk_level + quote + explanation 출력
-   ↓
-[증거 검증] quote가 본문 substring인지 확인
-   - 검증 실패 → low(검토 권장)로 강등 (변호사 검토 권장)
-   ↓
-[등급 재분류] KB 매칭 강도로 최종 등급 결정
-   - rule/kb 결과 → 그대로 신뢰
-   - LLM high + very_strong unfair (sim ≥ 0.75) → 법률 위반
-   - LLM 위험 + strong unfair (sim ≥ 0.7) → 계약자 불리
-   - 강한 매칭 없음 → 검토 권장
+```mermaid
+flowchart TD
+    Start[조항 본문] --> Rule{1·룰 매칭<br/>rule_filter}
+    Rule -->|safe 정형 표현| RS[rule_safe · 안전]
+    Rule -->|high 위반 패턴| RH[rule_high · 법률 위반]
+    Rule -->|회색지대| KB{2·KB 임베딩 분류}
+    KB -->|sim ≥ 0.85<br/>+ unfair 매칭| KBH[kb_high]
+    KB -->|sim ≥ 0.88<br/>+ law/safe 매칭| KBS[kb_safe]
+    KB -->|회색지대| LLM[3·LLM 분석<br/>EXAONE + RAG]
+    LLM --> EVQ{quote가 본문<br/>substring?}
+    EVQ -->|No · 환각| Low1[검토 권장<br/>변호사 검토 권장]
+    EVQ -->|Yes| Reclass{KB 매칭 강도}
+    Reclass -->|very_strong unfair<br/>sim ≥ 0.75| H[법률 위반]
+    Reclass -->|strong unfair<br/>sim ≥ 0.7| M[계약자 불리]
+    Reclass -->|약함| Low2[검토 권장]
+
+    classDef safe fill:#e6f4ea,stroke:#34a853
+    classDef high fill:#fce8e6,stroke:#d93025
+    classDef med fill:#fef7e0,stroke:#f9ab00
+    classDef low fill:#e8eaed,stroke:#5f6368
+    class RS safe
+    class RH,KBH,H high
+    class M med
+    class KBS safe
+    class Low1,Low2 low
 ```
 
-### 하이브리드 검색
+### 하이브리드 검색 흐름
 
-```
-쿼리 (조항 본문)
-  ↓
-BM25 (어휘 매칭) ──┐
-                   ├─→ RRF 머지 → 카테고리 부스트 → stratified quota
-벡터 (KURE-v1) ────┘                                  (law 2 + safe 1 +
-                                                       judgment 1 + unfair 1)
-                                                                ↓
-                                                         (옵션) Reranker
-                                                                ↓
-                                                          최종 top-K
+```mermaid
+flowchart LR
+    Q[조항 본문] --> BM25[BM25<br/>어휘 매칭]
+    Q --> VEC[벡터 검색<br/>KURE-v1]
+    BM25 --> RRF[RRF 머지]
+    VEC --> RRF
+    RRF --> Boost[카테고리 부스트<br/>law ×3.0 / safe ×1.5<br/>unfair ×0.6]
+    Boost --> Quota[Stratified Quota<br/>law 2 + safe 1<br/>judgment 1 + unfair 1]
+    Quota --> Rerank{Reranker<br/>옵션}
+    Rerank --> TopK[최종 top-K]
 ```
 
 - **vec_sim · bm25_sim · match_source 분리 저장** — 단일 source 매칭(BM25-only)은 어휘 우연 겹침일 가능성이 높아 표시 점수에 0.6× 패널티
-- **카테고리 부스트**: 법률 본문 ×3.0, 표준약관 ×1.5, 불공정약관 ×0.6 — KB 분포(판례 83% / 법률 12% / 약관 5%)의 극단적 불균형 보정
+- **카테고리 부스트** — KB 분포(판례 83% / 법률 12% / 약관 5%)의 극단적 불균형 보정. 법률 본문이 항상 top-K에 노출되도록 stratified quota와 이중 안전장치 적용
 
 ---
 
@@ -263,8 +303,7 @@ Contract-Guard/
 │   ├── bm25/                     # BM25 인덱스 (도메인별 .pkl)
 │   ├── uploads/                  # 업로드 파일 원본
 │   └── results/                  # 분석 결과 JSON (수정안 영속화)
-└── docs/
-    └── architecture.png          # 시스템 아키텍처 다이어그램
+└── README.md
 ```
 
 ---
