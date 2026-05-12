@@ -1,4 +1,5 @@
 import logging
+import re
 import uuid
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
@@ -97,6 +98,151 @@ def _categorize_source(source: str) -> str:
     return "law"
 
 
+_WS_NORM_RE = re.compile(r"\s+")
+
+# 위험 시그널 단어 — quote 폴백 자동 추출용 (도메인 중립).
+# LLM이 위험 판정했지만 quote 작성을 빠뜨린 경우, 본문에서 이 단어들 근처 문장을 추출해
+# 형광펜·증거 기반 검증의 폴백으로 사용한다.
+_RISK_SIGNAL_WORDS = (
+    # 부정·박탈
+    "없이", "없다", "없으며", "포기", "박탈", "거부",
+    # 일방성·재량
+    "전적으로", "단독", "일방", "일방적", "독단", "임의로", "마음대로",
+    # 즉시·강제
+    "즉시", "무조건", "절대", "전면",
+    # 책임 면제·배제
+    "면제", "배제", "면책",
+    # 법정 한도 초과
+    "초과", "한도",
+    # 비용 전가 (을이 부담·분담·충당)
+    "을이 부담", "을의 부담", "임차인이 부담", "임차인의 부담",
+    "전액 부담", "전부 부담", "전액", "분담한다", "분담하기로", "충당", "전가",
+    # 일방 결정·해석 권한
+    "갑이 결정", "갑이 단독", "갑의 단독", "임대인이 결정", "임대인의 단독",
+    "사업자가 결정", "사용자가 결정",
+    # 기한 박탈·제한
+    "공제", "유보", "무기한", "무제한", "박탈",
+    # 관할·소송 제약
+    "본사", "소재지", "지정", "전속관할",
+    # 일반화된 광범위 면책 표현
+    "어떠한 경우에도", "여하한 사유",
+)
+
+
+def _extract_risky_excerpt(content: str, max_len: int = 100) -> str | None:
+    """본문에서 위험 시그널 단어가 등장하는 문장을 추출.
+
+    LLM이 위험으로 판정했지만 quote를 작성하지 못한 경우의 폴백.
+    위험 시그널 단어가 본문에 등장할 때만 추출 (false-positive 차단).
+    매칭 실패 시 None을 반환하여 환각 차단을 그대로 진행.
+    """
+    if not content:
+        return None
+    sentences = re.split(r"[.。\n]", content)
+    for sent in sentences:
+        sent_strip = sent.strip()
+        if not sent_strip or len(sent_strip) < 10:
+            continue
+        if any(w in sent_strip for w in _RISK_SIGNAL_WORDS):
+            if len(sent_strip) <= max_len:
+                return sent_strip
+            return sent_strip[:max_len].rstrip(" ,·")
+    return None
+
+
+def _validate_quote(raw, clause_text: str) -> str | None:
+    """LLM이 출력한 quote가 본 조항 원문의 substring인지 검증한다.
+
+    LLM이 의역하거나 환각으로 본문에 없는 문구를 quote에 적으면 frontend의 형광펜이
+    매칭되지 않아 사용자에게 혼란을 준다. 정확한 substring일 때만 채택하고, 아니면
+    None으로 폴백하여 형광펜 표시를 생략한다 (잘못 칠하기보다 안 칠하기가 안전).
+
+    매칭 단계 (점진 완화):
+      1) 정확 substring
+      2) 공백 정규화 substring (줄바꿈·다중공백 차이만 있는 경우)
+      3) Prefix 폴백: LLM이 quote를 길게 출력하다가 토큰 한도로 끝부분이 잘리거나
+         의역으로 끝부분만 변형한 경우, 처음 N자가 본문에 있으면 그것만 채택.
+         (LLM 응답이 num_predict 한도에서 절단되는 케이스를 복구)
+    """
+    if not isinstance(raw, str):
+        return None
+    q = raw.strip()
+    if not q or not clause_text:
+        return None
+    if len(q) < 4:
+        return None
+
+    # 1단계: 정확 substring
+    if q in clause_text:
+        return q
+
+    # 2단계: 공백 정규화 후 substring
+    q_norm = _WS_NORM_RE.sub(" ", q)
+    text_norm = _WS_NORM_RE.sub(" ", clause_text)
+    if q_norm in text_norm:
+        return q_norm
+
+    # 3단계: Prefix 폴백 (긴 quote의 앞부분만 매칭되는 경우)
+    for cut in (120, 100, 80, 60, 40, 25):
+        if len(q) <= cut:
+            continue
+        prefix = q[:cut].rstrip(" ,.\"'·")
+        if len(prefix) < 15:
+            break
+        if prefix in clause_text:
+            return prefix
+        prefix_norm = _WS_NORM_RE.sub(" ", prefix)
+        if prefix_norm in text_norm:
+            return prefix_norm
+
+    logger.debug(f"quote 검증 실패 (본문에 없음): {q[:60]!r}")
+    return None
+
+
+def _reclassify_by_evidence(
+    risk_level: RiskLevel,
+    analysis_status: str,
+    refs: list[dict],
+) -> tuple[RiskLevel, str]:
+    """LLM 위험 판정을 데이터 출처와 매칭 강도에 따라 등급 재분류.
+
+    medium 자격은 'unfair_clause' 매칭만 인정 — judgment·law 매칭은 정상 조항에서도
+    흔하게 발생해 noise이고, 매칭 강도가 높다고 "위반 근거"인 것은 아니다.
+    임계값은 BM25-only 제외 + 의미 매칭 sim ≥ 0.7.
+
+    분류:
+    - HIGH (법률 위반):
+      - rule_high / kb_high (검증된 패턴)
+      - LLM high + very_strong unfair_clause 매칭 (sim ≥ 0.75)
+    - MEDIUM (계약자 불리):
+      - LLM high/medium + strong unfair_clause 매칭 (sim ≥ 0.7)
+    - LOW (검토 권장):
+      - LLM 위험 판정인데 strong unfair 매칭 없음
+    - SAFE: rule_safe / kb_safe / evidence_filtered / missing / LLM safe
+    """
+    if analysis_status in ("rule_high", "rule_safe", "kb_high", "kb_safe",
+                            "missing", "evidence_filtered"):
+        return risk_level, analysis_status
+    if risk_level not in (RiskLevel.HIGH, RiskLevel.MEDIUM):
+        return risk_level, analysis_status
+
+    def _has_strong_unfair(threshold: float) -> bool:
+        for r in refs:
+            if r.get("match_source", "vector") == "bm25":
+                continue
+            if (r.get("similarity", 0) or 0) < threshold:
+                continue
+            if (r.get("metadata") or {}).get("source", "") in _UNFAIR_CLAUSE_SOURCES:
+                return True
+        return False
+
+    if risk_level == RiskLevel.HIGH and _has_strong_unfair(0.75):
+        return RiskLevel.HIGH, "unfair_strong_evidence"
+    if _has_strong_unfair(0.7):
+        return RiskLevel.MEDIUM, "unfair_evidence"
+    return RiskLevel.LOW, "llm_only"
+
+
 def _normalize_risk_type(raw: str, valid_types: list[str]) -> str:
     """LLM이 반환한 risk_type을 유효한 유형으로 매핑."""
     raw_clean = raw.strip()
@@ -149,12 +295,72 @@ def _build_clause_analyses(
                     risk_type=_normalize_risk_type(r.get("risk_type", "unknown"), valid_risk_types) if valid_risk_types else r.get("risk_type", "unknown"),
                     description=r.get("description", ""),
                     suggestion=r.get("suggestion", ""),
+                    quote=_validate_quote(r.get("quote"), clause.content),
                 )
                 for r in raw_risks
                 if isinstance(r, dict)
             ]
             explanation = parsed.get("explanation", "")
             analysis_status = parsed.get("_status", "ok")
+
+            # 증거 기반 필터링 — LLM 환각 방지.
+            # 위험 판정인데 quote가 본문 substring으로 검증 안 되면 환각 가능성이 높다.
+            # LLM 비결정성으로 진짜 위험이 quote만 빠뜨릴 수 있어, 본문에서 위험 시그널을
+            # 자동 추출하는 폴백으로 false-negative를 줄인다.
+            # 룰/KB classifier 결과는 결정적 출처라 환각 검증 대상에서 제외한다.
+            TRUSTED_STATUSES = ("rule_high", "rule_safe", "kb_high", "kb_safe", "missing")
+            llm_origin = analysis_status not in TRUSTED_STATUSES
+            if llm_origin and risk_level in (RiskLevel.HIGH, RiskLevel.MEDIUM):
+                # 1차: quote가 비어있는 risk에 대해 본문에서 위험 시그널 자동 추출 시도
+                for r in risks:
+                    if not (r.quote and r.quote.strip()):
+                        auto_quote = _extract_risky_excerpt(clause.content)
+                        if auto_quote:
+                            r.quote = auto_quote
+                            logger.debug(
+                                f"조항 {clause.index} quote 자동 폴백: {auto_quote[:60]!r}"
+                            )
+
+                # 2차: 폴백 후에도 quote 없는 risk는 환각으로 간주
+                substantiated = [r for r in risks if r.quote and r.quote.strip()]
+                if not substantiated and risks:
+                    # 위험으로 판정했지만 quote 누락 — 두 가지 가능성:
+                    # 1) LLM 환각 (실제 안전인데 위험 본 것)
+                    # 2) LLM이 위험 본질은 잡았지만 인용 표기 실패 (실제 위험)
+                    # safe로 강등하면 2)가 false negative로 묻힘 → LOW(검토 권장)로 분류해
+                    # 사용자가 직접 검토 가능하게 한다.
+                    logger.info(
+                        f"조항 {clause.index} 증거 부족: 모든 risk가 quote 없음 → "
+                        f"{risk_level.value} → low(검토 권장)로 분류"
+                    )
+                    risk_level = RiskLevel.LOW
+                    risks = []
+                    explanation = (
+                        "LLM이 위험 가능성을 시사했으나 본문에서 직접 인용할 근거를 "
+                        "제시하지 못했습니다. 위험 단정은 어렵지만 변호사 검토를 권장합니다."
+                    )
+                    analysis_status = "evidence_filtered"
+                elif len(substantiated) < len(risks):
+                    # 일부만 환각인 경우, 증거 있는 risk만 유지
+                    removed = len(risks) - len(substantiated)
+                    logger.info(
+                        f"조항 {clause.index} 부분 환각 차단: {removed}개 risk 제거, "
+                        f"{len(substantiated)}개 유지"
+                    )
+                    risks = substantiated
+
+            # 데이터 출처 기반 등급 재분류 — 등급 근거를 references_detail로 추적 가능하게.
+            new_level, new_status = _reclassify_by_evidence(
+                risk_level, analysis_status,
+                per_clause_refs.get(clause.index, []),
+            )
+            if new_level != risk_level:
+                logger.info(
+                    f"조항 {clause.index} 등급 재분류: "
+                    f"{risk_level.value} → {new_level.value} ({new_status})"
+                )
+                risk_level = new_level
+                analysis_status = new_status
         else:
             # index_map에도 없음 = chain이 완전히 누락한 조항 (이상 케이스)
             risk_level = RiskLevel.MEDIUM
@@ -181,6 +387,7 @@ def _build_clause_analyses(
                 category=_categorize_source((ref.get("metadata") or {}).get("source", "")),
                 similarity=float(ref.get("similarity", 0) or 0),
                 article=(ref.get("metadata") or {}).get("article") or None,
+                match_source=ref.get("match_source", "vector"),
             )
             for ref in clause_refs
         ]

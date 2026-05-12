@@ -13,9 +13,9 @@ from pathlib import Path
 from xml.sax.saxutils import escape as xml_escape
 
 from docx import Document
-from docx.shared import Pt, RGBColor, Cm
+from docx.shared import Pt
 from reportlab.lib.pagesizes import A4
-from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.styles import ParagraphStyle
 from reportlab.lib.units import cm
 from reportlab.pdfbase import pdfmetrics
 from reportlab.pdfbase.ttfonts import TTFont
@@ -95,9 +95,9 @@ def _final_clause_text(ca: ClauseAnalysis) -> str:
 
 def _risk_label(level: RiskLevel) -> str:
     return {
-        RiskLevel.HIGH: "고위험",
-        RiskLevel.MEDIUM: "중위험",
-        RiskLevel.LOW: "저위험",
+        RiskLevel.HIGH: "법률 위반",
+        RiskLevel.MEDIUM: "계약자 불리",
+        RiskLevel.LOW: "검토 권장",
         RiskLevel.SAFE: "안전",
     }.get(level, str(level))
 
