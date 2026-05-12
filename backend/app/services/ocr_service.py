@@ -46,13 +46,13 @@ def get_ocr():
             # === detection 단계 ===
             det_db_thresh=0.2,         # 픽셀 임계 (default 0.3)
             det_db_box_thresh=0.3,     # 박스 채택 임계 (default 0.5)
-            det_db_unclip_ratio=2.5,   # 박스 확장 비율 (default 1.6)
+            det_db_unclip_ratio=2.0,   # 박스 확장 비율 (default 1.6)
             det_db_score_mode='slow',  # 점수 계산 방식 (default 'fast', 'slow' 는 작은 글씨 인식 개선)
-            det_limit_side_len=2560,   # detection 입력 상한 (default 960) — 작은 글씨 누락 핵심 해결
+            det_limit_side_len=3200,   # detection 입력 상한 (default 960) — 작은 글씨 누락 핵심 해결
             det_limit_type='max',      # 긴 변 기준 ('min' 이면 짧은 변 기준)
             # === recognition / 모델 버전 ===
             ocr_version='PP-OCRv4',    # 한국어 인식 v3→v4 (paddleocr>=2.7). 정확도 +5~10%p 기대
-            drop_score=0.3,            # 낮은 신뢰도 박스도 살림 (default 0.5). 누락 감소 ↔ noise 증가
+            drop_score=0.35,            # 낮은 신뢰도 박스도 살림 (default 0.5). 누락 감소 ↔ noise 증가
             use_space_char=True,       # 띄어쓰기 보존 — 한국어 문장에 중요
         )
     return _ocr
@@ -90,11 +90,20 @@ def _get_font(size: int) -> ImageFont.FreeTypeFont:
 
 
 def _prepare_image(image_path: str) -> Image.Image:
-    """EXIF 회전 적용 + RGB 변환 + 다운샘플."""
+    """EXIF 회전 + RGB 변환 + autocontrast + 다운샘플.
+
+    autocontrast 는 다운샘플 전에 적용 — 원본 해상도의 풍부한 히스토그램으로 보정한 뒤
+    축소하는 편이 명암 정보 손실이 적다.
+    """
     img = Image.open(image_path)
     img = ImageOps.exif_transpose(img)  # 좌표가 화면 표시와 어긋나는 사고 방지
     if img.mode != "RGB":
         img = img.convert("RGB")
+
+    # 사진 그림자·조명 불균일로 옅어진 글씨의 detection 회복.
+    # cutoff 만큼 히스토그램 양 끝을 잘라낸 뒤 0~255 로 재선형화 — 빨간 도장 등 색 정보는 보존.
+    if settings.ocr_autocontrast:
+        img = ImageOps.autocontrast(img, cutoff=settings.ocr_autocontrast_cutoff)
 
     max_dim = settings.ocr_max_image_dim
     if max(img.size) > max_dim:

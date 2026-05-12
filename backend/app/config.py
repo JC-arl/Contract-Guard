@@ -53,6 +53,11 @@ class Settings(BaseSettings):
     ocr_font_path: str = str(BASE_DIR / "backend" / "app" / "assets" / "fonts" / "NotoSansKR-Regular.ttf")
     # 업로드 단계 게이트 (Pillow decompression bomb 방지)
     ocr_max_upload_mb: int = 10
+    # autocontrast 전처리 — 사진 그림자/명암 불균일 영역에서 옅은 글씨 detection 회복.
+    # 양 끝 cutoff% 히스토그램을 잘라낸 뒤 전체 명암을 0~255 로 재선형화.
+    # 부작용 거의 없음. 도장 색은 보존된다 (히스토그램 양 끝만 건드림).
+    ocr_autocontrast: bool = True
+    ocr_autocontrast_cutoff: int = 2  # 0~10 범위, 클수록 강한 대비 보정
 
     model_config = {"env_file": str(BASE_DIR / ".env"), "extra": "ignore"}
 
