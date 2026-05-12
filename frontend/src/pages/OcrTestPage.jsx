@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { uploadOcrImage } from "../api/client";
 import OcrViewer from "../components/OcrViewer";
 
@@ -19,7 +19,19 @@ export default function OcrTestPage() {
   const [response, setResponse] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
+  const [elapsedMs, setElapsedMs] = useState(0);
+  const startedAtRef = useRef(0);
   const inputRef = useRef(null);
+
+  useEffect(() => {
+    if (!loading) return;
+    startedAtRef.current = performance.now();
+    setElapsedMs(0);
+    const id = setInterval(() => {
+      setElapsedMs(performance.now() - startedAtRef.current);
+    }, 100);
+    return () => clearInterval(id);
+  }, [loading]);
 
   const pick = () => inputRef.current?.click();
 
@@ -78,7 +90,13 @@ export default function OcrTestPage() {
 
       {loading && (
         <div className="ocr-status">
-          OCR 실행 중... (첫 호출은 모델 로딩으로 수십 초 걸릴 수 있습니다)
+          <span>OCR 실행 중... (첫 호출은 모델 로딩으로 수십 초 걸릴 수 있습니다)</span>
+          <span className="ocr-timer">{(elapsedMs / 1000).toFixed(1)}s</span>
+        </div>
+      )}
+      {!loading && !error && response && elapsedMs > 0 && (
+        <div className="ocr-status ocr-done">
+          완료 — 소요 시간 {(elapsedMs / 1000).toFixed(2)}s
         </div>
       )}
       {error && <div className="ocr-status ocr-error">{error}</div>}
@@ -95,7 +113,16 @@ export default function OcrTestPage() {
           transition: background .15s;
         }
         .ocr-uploader:hover { background: #f1f4f8; }
-        .ocr-status { margin-top: 16px; padding: 10px 14px; border-radius: 6px; background: #eef3fb; color: #36506e; font-size: 13px; }
+        .ocr-status {
+          margin-top: 16px; padding: 10px 14px; border-radius: 6px;
+          background: #eef3fb; color: #36506e; font-size: 13px;
+          display: flex; justify-content: space-between; align-items: center; gap: 12px;
+        }
+        .ocr-timer {
+          font-variant-numeric: tabular-nums; font-weight: 600;
+          background: #dbe6f6; color: #1f3a5f; padding: 2px 10px; border-radius: 999px;
+        }
+        .ocr-done { background: #e6f5ec; color: #1f5d3a; }
         .ocr-error { background: #fde8e8; color: #9b1c1c; }
         .ocr-viewer { margin-top: 20px; }
         .ocr-meta { display: flex; gap: 8px; align-items: center; color: #666; font-size: 12px; margin-bottom: 8px; }

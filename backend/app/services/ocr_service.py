@@ -43,12 +43,17 @@ def get_ocr():
             lang=settings.ocr_lang,
             use_gpu=use_gpu,
             show_log=False,
+            # === detection 단계 ===
             det_db_thresh=0.2,         # 픽셀 임계 (default 0.3)
             det_db_box_thresh=0.3,     # 박스 채택 임계 (default 0.5)
-            det_db_unclip_ratio=2.0,   # 박스 확장 비율 (default 1.6)
+            det_db_unclip_ratio=2.5,   # 박스 확장 비율 (default 1.6)
             det_db_score_mode='slow',  # 점수 계산 방식 (default 'fast', 'slow' 는 작은 글씨 인식 개선)
             det_limit_side_len=2560,   # detection 입력 상한 (default 960) — 작은 글씨 누락 핵심 해결
             det_limit_type='max',      # 긴 변 기준 ('min' 이면 짧은 변 기준)
+            # === recognition / 모델 버전 ===
+            ocr_version='PP-OCRv4',    # 한국어 인식 v3→v4 (paddleocr>=2.7). 정확도 +5~10%p 기대
+            drop_score=0.3,            # 낮은 신뢰도 박스도 살림 (default 0.5). 누락 감소 ↔ noise 증가
+            use_space_char=True,       # 띄어쓰기 보존 — 한국어 문장에 중요
         )
     return _ocr
 
