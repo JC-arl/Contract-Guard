@@ -58,6 +58,19 @@ class Settings(BaseSettings):
     # 부작용 거의 없음. 도장 색은 보존된다 (히스토그램 양 끝만 건드림).
     ocr_autocontrast: bool = True
     ocr_autocontrast_cutoff: int = 2  # 0~10 범위, 클수록 강한 대비 보정
+    # PP-Structure 레이아웃 분석 — 제목/본문/표/그림 영역을 분리해 박스별 region_type 부여.
+    # 한국어 fine-tune 이 없어 영문(PubLayNet) 또는 중문(CDLA) 모델로 동작한다.
+    # 결과 품질이 떨어지면 OCR_USE_LAYOUT=false 로 끄고 raw 박스만 사용한다.
+    ocr_use_layout: bool = False
+    # 레이아웃 모델 언어 — 'ch'(CDLA, 중문 학술/공문서) 또는 'en'(PubLayNet, 영문 학술).
+    # 한국어 계약서는 CDLA 가 본문/제목/표 구분에 더 유리(PubLayNet 은 figure 로 몰아붙이는 경향).
+    # CDLA 라벨: text/title/figure/figure_caption/table/table_caption/header/footer/reference/equation
+    # PubLayNet 라벨: text/title/list/table/figure
+    ocr_layout_lang: str = "ch"
+    # 세이프가드 — 검출된 region 중 figure 비율이 이 임계값 이상이면 레이아웃 실패로 간주.
+    # 결과를 통째로 버리고 raw 박스로 폴백한다 (region_type=None, regions=[]).
+    # 0~1 사이; 1.0 이면 비활성. 0.7 이면 70% 초과가 figure 일 때 폴백.
+    ocr_layout_figure_max_ratio: float = 0.7
 
     model_config = {"env_file": str(BASE_DIR / ".env"), "extra": "ignore"}
 

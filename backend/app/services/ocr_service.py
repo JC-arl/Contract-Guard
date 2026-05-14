@@ -17,6 +17,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 from backend.app.config import settings
 from backend.app.models.ocr import OcrBox, OcrResult
+from backend.app.services import ocr_layout
 from backend.app.services.llm_service import get_llm
 
 # decompression bomb 보호 (DoS 방지). Pillow 기본 ~89M 픽셀.
@@ -145,6 +146,11 @@ async def run_ocr(image_path: str) -> tuple[OcrResult, Image.Image]:
     """이미지 경로를 받아 OCR 결과와 (다운샘플·EXIF 적용된) PIL 이미지를 반환.
 
     호출자가 prepared 이미지를 그대로 _orig.png 로 저장하면 박스 좌표와 표시 이미지가 정합한다.
+
+    파이프라인:
+      1) PaddleOCR detection+recognition → raw 박스
+      2) (선택) PP-Structure 레이아웃 분석 → 영역 검출 + 박스에 region_type 부여
+    레이아웃 단계 실패는 무음 폴백 — raw 박스만 가진 결과로 반환.
     """
     started = time.perf_counter()
     img = _prepare_image(image_path)
@@ -153,27 +159,62 @@ async def run_ocr(image_path: str) -> tuple[OcrResult, Image.Image]:
     raw_boxes = await asyncio.to_thread(_run_paddle, np_image)
     boxes = [OcrBox(poly=p, text=t, score=s) for (p, t, s) in raw_boxes]
 
+    regions = []
+    if settings.ocr_use_layout and boxes:
+        # PaddleOCR 와 동일한 np_image(RGB) 를 그대로 전달. PP-Structure 도 RGB/BGR 양쪽 동작.
+        regions = await asyncio.to_thread(ocr_layout.detect_regions, np_image)
+        boxes = ocr_layout.assign_regions(boxes, regions)
+
     elapsed_ms = int((time.perf_counter() - started) * 1000)
     result = OcrResult(
         width=img.width,
         height=img.height,
         elapsed_ms=elapsed_ms,
         boxes=boxes,
+        regions=regions,
     )
     return result, img
+
+
+# 박스 외곽선 색 — region_type 별 BGR 튜플(cv2 는 BGR). 프론트엔드 색상과 의미가 일치하도록 통일.
+# PubLayNet(text/title/list/table/figure) 과 CDLA(text/title/figure/figure_caption/table/
+# table_caption/header/footer/reference/equation) 양쪽 라벨을 모두 커버한다.
+# 기본(빨강)은 region 미부여(레이아웃 off 또는 실패 폴백) 시에도 기존 시각화와 동일하게 보이도록 유지.
+_REGION_COLORS_BGR: dict[str, tuple[int, int, int]] = {
+    "title": (255, 128, 0),         # 파랑
+    "text": (0, 0, 255),            # 빨강 — 기본 본문
+    "list": (255, 0, 255),          # 보라 (PubLayNet)
+    "table": (0, 200, 0),           # 초록
+    "table_caption": (0, 180, 100), # 연두 (CDLA)
+    "figure": (128, 128, 128),      # 회색 — 서명/도장/그림
+    "figure_caption": (160, 160, 160),
+    "header": (200, 100, 50),       # 어두운 청록 (CDLA, 머리말)
+    "footer": (200, 100, 50),       # 어두운 청록 (CDLA, 꼬리말)
+    "reference": (180, 120, 200),   # 라벤더 (CDLA)
+    "equation": (50, 50, 200),      # 진빨강 (CDLA, 수식)
+}
+_DEFAULT_BOX_COLOR_BGR = (0, 0, 255)
+
+
+def _box_color_bgr(box: OcrBox) -> tuple[int, int, int]:
+    """region_type 기반 박스 색 결정. None/unclassified 는 기본(빨강)."""
+    if not box.region_type:
+        return _DEFAULT_BOX_COLOR_BGR
+    return _REGION_COLORS_BGR.get(box.region_type, _DEFAULT_BOX_COLOR_BGR)
 
 
 def render_overlay(prepared_image: Image.Image, result: OcrResult, out_path: str) -> str:
     """박스 polygon + 한국어 라벨을 합성해 PNG 로 저장. 저장 경로를 반환.
 
     OpenCV 로 polygon 외곽선만 그리고, 텍스트는 PIL ImageDraw + TrueType 으로 합성한다
-    (cv2.putText 는 한글 미지원).
+    (cv2.putText 는 한글 미지원). 박스 색은 region_type(title/text/list/table/figure)
+    별로 분기 — 레이아웃이 검출되지 않은 박스는 기본 빨강.
     """
     # OpenCV 는 BGR 을 기대하므로 일시 변환
     bgr = cv2.cvtColor(np.array(prepared_image), cv2.COLOR_RGB2BGR)
     for box in result.boxes:
         pts = np.array(box.poly, dtype=np.int32).reshape(-1, 1, 2)
-        cv2.polylines(bgr, [pts], isClosed=True, color=(0, 0, 255), thickness=2)
+        cv2.polylines(bgr, [pts], isClosed=True, color=_box_color_bgr(box), thickness=2)
     annotated = Image.fromarray(cv2.cvtColor(bgr, cv2.COLOR_BGR2RGB))
 
     draw = ImageDraw.Draw(annotated, "RGBA")
@@ -195,10 +236,11 @@ def render_overlay(prepared_image: Image.Image, result: OcrResult, out_path: str
         if label_y < 0:
             label_y = int(min_y) + 2
 
-        # 반투명 배경
+        # 반투명 배경 — 외곽선 색과 동일 (BGR→RGB 변환 후 알파 부착).
+        b, g, r = _box_color_bgr(box)
         draw.rectangle(
             [label_x, label_y, label_x + tw + 6, label_y + th + 4],
-            fill=(255, 0, 0, 160),
+            fill=(r, g, b, 160),
         )
         draw.text((label_x + 3, label_y + 1), box.text, fill=(255, 255, 255, 255), font=font)
 
@@ -338,3 +380,5 @@ def warmup() -> None:
     except Exception:
         # 워밍업 실패는 치명적이지 않음 — 첫 실제 요청에서 다시 시도된다.
         pass
+    # 레이아웃 모델도 같이 미리 로딩 (설정 켜진 경우만).
+    ocr_layout.warmup()
