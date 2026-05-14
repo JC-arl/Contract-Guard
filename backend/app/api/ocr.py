@@ -13,7 +13,7 @@ from fastapi import APIRouter, File, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 
 from backend.app.config import settings
-from backend.app.models.ocr import OcrResponse
+from backend.app.models.ocr import OcrCorrectRequest, OcrCorrectResponse, OcrResponse
 from backend.app.services import ocr_service
 
 router = APIRouter()
@@ -96,3 +96,17 @@ async def get_image(document_id: str):
 @router.get("/ocr/overlay/{document_id}")
 async def get_overlay(document_id: str):
     return FileResponse(_safe_file(document_id, "overlay"), media_type="image/png")
+
+
+@router.post("/ocr/correct", response_model=OcrCorrectResponse)
+async def correct(payload: OcrCorrectRequest) -> OcrCorrectResponse:
+    """OCR 결과 박스들을 LLM 으로 후보정.
+
+    백엔드에 OCR 결과를 영속화하지 않으므로 클라이언트가 직전 응답의 boxes 를 그대로
+    다시 보낸다. 결과는 corrected_text 가 채워진 boxes 와 소요 시간.
+    """
+    import time
+    started = time.perf_counter()
+    corrected = await ocr_service.correct_with_llm(payload.boxes)
+    elapsed_ms = int((time.perf_counter() - started) * 1000)
+    return OcrCorrectResponse(boxes=corrected, elapsed_ms=elapsed_ms)

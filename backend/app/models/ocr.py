@@ -7,6 +7,21 @@ class OcrBox(BaseModel):
     poly: list[list[float]]
     text: str
     score: float
+    # LLM 보정 후 채워지는 교정 텍스트. None 이면 보정 안 한 상태.
+    # 프론트에서 원본/보정/diff 토글로 비교 가능.
+    corrected_text: str | None = None
+
+
+class OcrCorrectRequest(BaseModel):
+    """LLM 보정 요청 — 클라이언트가 직전 OCR 응답의 boxes 를 그대로 다시 보낸다.
+    백엔드에 결과를 영속화하지 않아 클라이언트가 상태를 들고 있는 단순한 구조.
+    """
+    boxes: list[OcrBox]
+
+
+class OcrCorrectResponse(BaseModel):
+    boxes: list[OcrBox]
+    elapsed_ms: int
 
 
 class OcrResult(BaseModel):

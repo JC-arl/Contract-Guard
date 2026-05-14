@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { uploadOcrImage } from "../api/client";
+import { uploadOcrImage, correctOcrBoxes } from "../api/client";
 import OcrViewer from "../components/OcrViewer";
 
 const ACCEPTED_EXT = [".png", ".jpg", ".jpeg", ".webp"];
@@ -23,6 +23,12 @@ export default function OcrTestPage() {
   const startedAtRef = useRef(0);
   const inputRef = useRef(null);
 
+  // LLM 후보정 — OCR 결과를 한국어 계약서 문맥으로 교정해 corrected_text 채움.
+  // OCR 결과가 있을 때만 활성. 별도 로딩/소요시간 표시.
+  const [correcting, setCorrecting] = useState(false);
+  const [correctElapsed, setCorrectElapsed] = useState(0);
+  const correctStartedAtRef = useRef(0);
+
   useEffect(() => {
     if (!loading) return;
     startedAtRef.current = performance.now();
@@ -33,7 +39,36 @@ export default function OcrTestPage() {
     return () => clearInterval(id);
   }, [loading]);
 
+  useEffect(() => {
+    if (!correcting) return;
+    correctStartedAtRef.current = performance.now();
+    setCorrectElapsed(0);
+    const id = setInterval(() => {
+      setCorrectElapsed(performance.now() - correctStartedAtRef.current);
+    }, 100);
+    return () => clearInterval(id);
+  }, [correcting]);
+
   const pick = () => inputRef.current?.click();
+
+  async function runLlmCorrection() {
+    if (!response || correcting) return;
+    setError("");
+    setCorrecting(true);
+    try {
+      const data = await correctOcrBoxes(response.result.boxes);
+      // 기존 응답에 보정된 boxes 만 덮어쓰고 image_url / overlay_url 등은 유지
+      setResponse((prev) => ({
+        ...prev,
+        result: { ...prev.result, boxes: data.boxes },
+      }));
+    } catch (e) {
+      const msg = e?.response?.data?.detail || e?.message || "LLM 보정 실패";
+      setError(typeof msg === "string" ? msg : JSON.stringify(msg));
+    } finally {
+      setCorrecting(false);
+    }
+  }
 
   async function handleFile(f) {
     if (!isImage(f)) {
@@ -101,6 +136,25 @@ export default function OcrTestPage() {
       )}
       {error && <div className="ocr-status ocr-error">{error}</div>}
 
+      {response && !loading && (
+        <div className="ocr-action-row">
+          <button
+            type="button"
+            className="ocr-llm-btn"
+            onClick={runLlmCorrection}
+            disabled={correcting}
+          >
+            {correcting ? "LLM 보정 중..." : "LLM 보정 실행"}
+          </button>
+          {correcting && (
+            <span className="ocr-timer">{(correctElapsed / 1000).toFixed(1)}s</span>
+          )}
+          <span className="ocr-action-hint">
+            추출된 텍스트를 LLM이 한국어 계약서 문맥으로 교정. SVG 탭에서 라벨 토글로 비교.
+          </span>
+        </div>
+      )}
+
       {response && <OcrViewer response={response} />}
 
       <style>{`
@@ -139,6 +193,39 @@ export default function OcrTestPage() {
           margin: 0; padding: 12px; background: #0f172a; color: #e2e8f0;
           font-size: 12px; line-height: 1.5; max-height: 600px; overflow: auto;
         }
+
+        /* LLM 보정 버튼 영역 */
+        .ocr-action-row {
+          margin-top: 16px; display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+        }
+        .ocr-llm-btn {
+          background: #2563eb; color: #fff; border: none; padding: 8px 16px;
+          border-radius: 6px; cursor: pointer; font-size: 13px; font-weight: 600;
+          transition: background .15s;
+        }
+        .ocr-llm-btn:hover:not(:disabled) { background: #1d4ed8; }
+        .ocr-llm-btn:disabled { background: #93b5e8; cursor: not-allowed; }
+        .ocr-action-hint { color: #888; font-size: 12px; }
+
+        /* SVG 라벨 소스 토글 */
+        .ocr-label-toggle {
+          display: flex; align-items: center; gap: 4px; margin-top: 8px;
+        }
+        .ocr-label-btn {
+          background: transparent; border: 1px solid #e3e7ec; padding: 4px 10px;
+          border-radius: 999px; cursor: pointer; color: #666; font-size: 12px;
+        }
+        .ocr-label-btn.active { background: #2563eb; color: #fff; border-color: #2563eb; }
+
+        /* LLM 변경분 표 */
+        .ocr-diff-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+        .ocr-diff-table th, .ocr-diff-table td {
+          padding: 8px 12px; border-bottom: 1px solid #eef0f3; text-align: left;
+          vertical-align: top;
+        }
+        .ocr-diff-table th { background: #f7f8fa; color: #555; font-weight: 600; }
+        .ocr-diff-table td.diff-orig { color: #9b1c1c; font-family: monospace; }
+        .ocr-diff-table td.diff-fixed { color: #1f5d3a; font-family: monospace; font-weight: 600; }
       `}</style>
     </div>
   );

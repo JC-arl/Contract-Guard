@@ -26,6 +26,14 @@ export async function uploadOcrImage(file) {
   return response.data;
 }
 
+// OCR 결과를 LLM 으로 후보정. 직전 OCR 응답의 boxes 를 그대로 다시 보내고,
+// corrected_text 가 채워진 boxes 를 받음. 텍스트와 corrected_text 비교로 LLM 이 어디를
+// 어떻게 고쳤는지 시각적으로 확인하기 위한 검증 도구.
+export async function correctOcrBoxes(boxes) {
+  const response = await api.post("/api/ocr/correct", { boxes });
+  return response.data;  // { boxes:[{poly,text,score,corrected_text}], elapsed_ms }
+}
+
 // 지식베이스 통계 조회 (홈 화면 카운트업 애니메이션용)
 export async function fetchKbStatus() {
   const response = await api.get("/api/kb/status");

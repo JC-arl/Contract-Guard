@@ -6,6 +6,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import re
 import time
 from pathlib import Path
 
@@ -15,6 +17,7 @@ from PIL import Image, ImageDraw, ImageFont, ImageOps
 
 from backend.app.config import settings
 from backend.app.models.ocr import OcrBox, OcrResult
+from backend.app.services.llm_service import get_llm
 
 # decompression bomb 보호 (DoS 방지). Pillow 기본 ~89M 픽셀.
 Image.MAX_IMAGE_PIXELS = 50_000_000
@@ -202,6 +205,117 @@ def render_overlay(prepared_image: Image.Image, result: OcrResult, out_path: str
     Path(out_path).parent.mkdir(parents=True, exist_ok=True)
     annotated.save(out_path, format="PNG", optimize=False)
     return out_path
+
+
+# ============================================================================
+# LLM 후보정 — OCR 결과 텍스트의 받침/기호 오인식을 한국어 계약서 문맥으로 교정.
+# 분석 파이프라인이 OCR 오자를 실제로 얼마나 흡수하는지 시각적으로 검증하기 위한 도구.
+# ============================================================================
+
+_CORRECTION_PROMPT_TEMPLATE = """\
+다음은 한국어 계약서 이미지에서 OCR로 추출한 텍스트 조각들입니다.
+명백한 OCR 오류만 한국어 계약서 문맥에 맞게 교정하세요.
+
+규칙:
+1. 의미를 바꾸지 마세요 — 오류가 아닌데 의역하지 마세요
+2. 숫자/금액은 절대 바꾸지 마세요 (명백한 OCR 오류만 예외)
+3. 확신이 없으면 원본 그대로 두세요
+4. 의미 없는 짧은 박스(점/한 글자/노이즈)는 원본 그대로 유지
+
+출력 형식: JSON 배열만 출력. 각 원소는 {{"i": 인덱스, "c": "교정된_텍스트"}}.
+설명/주석 없이 JSON만 출력.
+
+입력:
+{lines}
+
+출력:
+"""
+
+
+def _build_correction_prompt(batch: list[tuple[int, str]]) -> str:
+    lines = "\n".join(f"[{i}] {text}" for (i, text) in batch)
+    return _CORRECTION_PROMPT_TEMPLATE.format(lines=lines)
+
+
+def _extract_correction_json(response_text: str) -> list[dict]:
+    """LLM 응답에서 JSON 배열을 추출. <think> 태그, 코드블록, 잡설에 강건.
+
+    rag/chain.py 의 _extract_json_from_response 와 같은 4단계 폴백 사용.
+    """
+    # 1) <think>...</think> 태그 제거 (EXAONE 등의 chain-of-thought)
+    cleaned = re.sub(r"<think>.*?</think>", "", response_text, flags=re.DOTALL)
+
+    # 2) ```json ... ``` 코드블록 추출
+    fence = re.search(r"```(?:json)?\s*(\[.*?\])\s*```", cleaned, flags=re.DOTALL)
+    if fence:
+        candidate = fence.group(1)
+    else:
+        # 3) 가장 바깥 [...] 추출
+        m = re.search(r"\[.*\]", cleaned, flags=re.DOTALL)
+        candidate = m.group(0) if m else cleaned
+
+    try:
+        parsed = json.loads(candidate)
+        if isinstance(parsed, list):
+            return parsed
+    except json.JSONDecodeError:
+        pass
+    return []
+
+
+async def correct_with_llm(
+    boxes: list[OcrBox],
+    batch_size: int = 30,
+    min_text_len: int = 2,
+) -> list[OcrBox]:
+    """각 박스의 text 를 LLM 으로 교정해 corrected_text 필드를 채워 반환.
+
+    - 너무 짧은 박스(길이 < min_text_len)는 LLM 호출 생략 (원본 유지)
+    - batch_size 단위로 LLM 호출 (Ollama context 절약 + 부분 실패 격리)
+    - 파싱 실패한 배치는 해당 박스들의 corrected_text 를 원본과 동일하게 둠
+    - 호출자는 box.text != box.corrected_text 비교로 LLM 이 변경한 곳만 식별 가능
+    """
+    if not boxes:
+        return list(boxes)
+
+    llm = get_llm()
+
+    # 보정 대상 인덱스 필터링
+    targets: list[tuple[int, str]] = [
+        (i, b.text) for i, b in enumerate(boxes)
+        if len(b.text.strip()) >= min_text_len
+    ]
+
+    corrections: dict[int, str] = {}
+    for start in range(0, len(targets), batch_size):
+        batch = targets[start:start + batch_size]
+        prompt = _build_correction_prompt(batch)
+        try:
+            response = await asyncio.to_thread(llm.invoke, prompt)
+            response_text = getattr(response, "content", str(response))
+            parsed = _extract_correction_json(response_text)
+            for item in parsed:
+                try:
+                    idx = int(item.get("i"))
+                    corrected = str(item.get("c", "")).strip()
+                    if corrected:
+                        corrections[idx] = corrected
+                except (TypeError, ValueError):
+                    continue
+        except Exception:
+            # 배치 실패는 무음 폴백 — 해당 인덱스는 원본 그대로 (analysis_service 패턴)
+            continue
+
+    # 결과 박스: 보정 실패/생략 시 corrected_text = 원본 text (프론트가 항상 값을 쓸 수 있게)
+    return [
+        OcrBox(
+            poly=b.poly,
+            text=b.text,
+            score=b.score,
+            corrected_text=corrections.get(i, b.text),
+        )
+        for i, b in enumerate(boxes)
+    ]
 
 
 def save_prepared(prepared_image: Image.Image, out_path: str) -> str:
