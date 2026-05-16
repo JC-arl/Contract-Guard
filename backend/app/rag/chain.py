@@ -154,6 +154,88 @@ def _expand_query_for_short_clause(clause: Clause, contract_type: str) -> str:
     return expanded
 
 
+# 한국 약관의 "정상 prefix + 불공정 suffix" 패턴 false-positive 차단용.
+# 본 조항과 KB unfair_clause 매칭이 앞부분만 어휘적으로 같고 핵심 의미(뒷부분)는
+# 다른 경우, 임베딩이 평균 풀링이라 sim이 과대평가됨. 페널티로 보정해 LLM·재분류
+# 임계값에서 자연스럽게 약해지도록 한다.
+# 예) 본 조항: "임차인은 만료 2개월 전까지 해지·연장 의사를 전달한다" (정상)
+#     KB 불공정: "임차인이 만료 2개월 전까지 반대의사 통지 안 하면 12개월 자동연장"
+#     → prefix 일치, suffix 다름 → unfair sim에 페널티 적용
+_HEADER_LABEL_PREFIX_RE = re.compile(r"^\[[^\]]+\]\s*[^\n]*\n?")
+
+
+def _bigram_jaccard(s1: str, s2: str) -> float:
+    """문자 2-gram 자카드 유사도. SequenceMatcher와 달리 한국어 1-2자 변형
+    (은/이, 다/는다 등 조사·어미)에 강건하다.
+    """
+    if len(s1) < 2 or len(s2) < 2:
+        return 0.0
+    g1 = {s1[i:i + 2] for i in range(len(s1) - 1)}
+    g2 = {s2[i:i + 2] for i in range(len(s2) - 1)}
+    if not g1 or not g2:
+        return 0.0
+    return len(g1 & g2) / len(g1 | g2)
+
+
+def _prefix_overlap_penalty(
+    clause_text: str,
+    ref_text: str,
+    head_n: int = 25,
+    tail_n: int = 25,
+    penalty: float = 0.15,
+) -> float:
+    """본 조항과 KB ref의 prefix overlap이 의심스러운 경우 적용할 페널티 값.
+
+    bigram 자카드로 head/tail 유사도를 계산하고, prefix만 강하게 일치(head ≥ 0.4)
+    + suffix는 의미적으로 다름(head - tail ≥ 0.3 gap)일 때 false-positive 판단.
+    완전 유사(둘 다 높음)는 페널티 X.  head/tail 모두 낮으면 애초에 sim도 안 높을
+    것이므로 무영향.
+    """
+    if not clause_text or not ref_text:
+        return 0.0
+    a = re.sub(r"\s+", "", clause_text)
+    # KB ref의 헤더 라벨([X] 제N조 ...\n) 제거 후 본문만 비교
+    b = _HEADER_LABEL_PREFIX_RE.sub("", ref_text)
+    b = re.sub(r"\s+", "", b)
+    # 너무 짧으면 페널티 적용 무의미 (오판 위험)
+    min_len = min(len(a), len(b))
+    if min_len < 20:
+        return 0.0
+    # head/tail이 겹치지 않도록 짧은 쪽 길이의 절반으로 동적 조정
+    head_n = min(head_n, min_len // 2)
+    tail_n = min(tail_n, min_len // 2)
+    head_ratio = _bigram_jaccard(a[:head_n], b[:head_n])
+    tail_ratio = _bigram_jaccard(a[-tail_n:], b[-tail_n:])
+    # prefix 어휘 일치 + suffix 의미 다름 — false-positive 패턴 (한국어 bigram 자카드 스케일)
+    if head_ratio >= 0.3 and (head_ratio - tail_ratio) >= 0.25:
+        return penalty
+    return 0.0
+
+
+def _apply_prefix_penalty_to_refs(clause_content: str, refs: list[dict]) -> None:
+    """unfair_clause refs에 prefix-overlap 페널티를 적용 (in-place).
+
+    safe/law 카테고리는 정형 표현이라 prefix overlap이 자연스러우므로 페널티 X.
+    페널티 적용된 similarity는 후속 _classify_by_kb·_reclassify_by_evidence의
+    임계값에서 자연스럽게 false-positive를 약화한다.
+    """
+    for r in refs:
+        src = (r.get("metadata") or {}).get("source", "")
+        if src != "unfair_clause":
+            continue
+        pen = _prefix_overlap_penalty(clause_content, r.get("text", ""))
+        if pen <= 0:
+            continue
+        old_sim = r.get("similarity", 0) or 0
+        new_sim = max(0.0, old_sim - pen)
+        r["similarity"] = round(new_sim, 4)
+        r["_prefix_penalty"] = pen
+        logger.info(
+            f"prefix-overlap 페널티: unfair sim {old_sim:.3f} → {new_sim:.3f} "
+            f"(ref 앞 50자: {r.get('text', '')[:50]!r})"
+        )
+
+
 def _retrieve_for_clause(clause: Clause, contract_type: str) -> list[dict]:
     """다중 항 조항이면 항별 검색 후 union, 단일 항이면 기존 방식.
 
@@ -166,7 +248,9 @@ def _retrieve_for_clause(clause: Clause, contract_type: str) -> list[dict]:
         logger.info(
             f"[retrieve] 조항 {clause.index} 단일항 처리 (content {len(clause.content)}자)"
         )
-        return retrieve_similar(query_text, contract_type=contract_type)
+        refs = retrieve_similar(query_text, contract_type=contract_type)
+        _apply_prefix_penalty_to_refs(clause.content, refs)
+        return refs
     logger.info(
         f"[retrieve] 조항 {clause.index} 항 분할 적용: {len(items)}개 항"
     )
@@ -224,6 +308,7 @@ def _retrieve_for_clause(clause: Clause, contract_type: str) -> list[dict]:
         selected.append(r)
         selected_ids.add(rid)
 
+    _apply_prefix_penalty_to_refs(clause.content, selected)
     return selected
 
 
@@ -576,34 +661,13 @@ def _classify_by_kb(clause: Clause, refs: list[dict]) -> dict | None:
             "_status": "kb_safe",
         }
 
-    # 위험 신호 (unfair_clause와 매우 유사하고 안전 매칭이 약한 경우)
-    if unfair_sim >= KB_HIGH_THRESHOLD and (safe_sim < KB_SAFE_THRESHOLD or unfair_sim - safe_sim > 0.05):
-        ref = best_unfair[1]
-        meta = ref.get("metadata") or {}
-        # 본문에서 가장 의미 있는 위험 부분을 quote로 추출 (간단한 휴리스틱: 입력 조항의 핵심 문장)
-        # KB sample과 의미적으로 유사한 부분이라는 보장은 없지만, 적어도 본문에서 가져옴
-        quote = _extract_risky_excerpt(clause.content)
-        return {
-            "clause_index": clause.index,
-            "risk_level": "high",
-            "confidence": min(0.99, 0.5 + unfair_sim / 2),
-            "risks": [{
-                "risk_type": "권리제한",
-                "description": (
-                    f"KB 데이터의 불공정 약관 사례와 유사도 {unfair_sim:.0%}로 매칭. "
-                    f"해당 사례는 약관규제법 위반으로 분류됨."
-                ),
-                "suggestion": "유사 사례를 참고하여 조항 삭제 또는 법률 기준에 맞게 재협상 권장",
-                "quote": quote or "",
-            }],
-            "explanation": (
-                f"본 조항은 KB 데이터의 [약관-불공정] 사례와 유사도 {unfair_sim:.0%}로 매칭됩니다. "
-                f"매칭된 KB 사례: '{ref.get('text', '')[:200]}'"
-            ),
-            "_status": "kb_high",
-        }
+    # unfair high 후보는 KB 단독으로 확정하지 않고 LLM에 위임한다.
+    # 어휘 prefix만 일치하는 false-positive(예: "임차인은 2개월 전 통지" prefix 공유)를
+    # 차단하기 위해, 모든 high 후보는 LLM이 references_detail을 보고 본문과 의미적
+    # 비교 후 최종 판단. unfair 매칭은 _apply_prefix_penalty_to_refs에서 prefix-overlap
+    # 페널티가 이미 적용된 상태로 LLM·재분류 임계값에 전달된다.
 
-    # 회색지대 — LLM에 위임
+    # 회색지대(unfair high 포함) — LLM에 위임
     return None
 
 

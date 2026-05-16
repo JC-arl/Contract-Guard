@@ -83,6 +83,14 @@ _JUDGMENT_SOURCES = {"precedent_kr", "aihub_판결문", "판례/실무"}
 _SAFE_CLAUSE_SOURCES = {"safe_clause", "실무"}
 _UNFAIR_CLAUSE_SOURCES = {"unfair_clause"}
 # "약관규제법/판례"는 약관규제법 본문이므로 law로 집계
+# law 카테고리 — HIGH(법률 위반) 자격을 부여하는 출처 집합 (retrieval_service와 일치)
+_LAW_SOURCES = {
+    "law",
+    "민법", "주택임대차보호법", "상가건물임대차보호법",
+    "근로기준법", "근로자퇴직급여보장법", "최저임금법",
+    "이자제한법", "공인중개사법", "민사집행법", "건설산업기본법",
+    "하도급거래공정화에관한법률", "약관규제법/판례",
+}
 
 
 def _categorize_source(source: str) -> str:
@@ -199,26 +207,61 @@ def _validate_quote(raw, clause_text: str) -> str | None:
     return None
 
 
+def _quote_has_risk_signal(risks: list[RiskDetail] | list[dict]) -> bool:
+    """LLM이 인용한 quote에 권리박탈·일방결정·과도부담 같은 위험 시그널 단어가
+    있는지 검사.
+
+    True: 위험으로 분류할 본문 근거 있음.
+    False: 단순 사실/통지 의무 기재일 가능성 → 위험 등급 강등 대상.
+    LLM이 KB 매칭만 보고 잘못 medium/high 판정한 false-positive를 차단한다.
+    """
+    for r in risks or []:
+        # RiskDetail 객체 또는 dict 양쪽 지원
+        if hasattr(r, "quote"):
+            q = r.quote or ""
+        else:
+            q = (r.get("quote") or "") if isinstance(r, dict) else ""
+        if not q:
+            continue
+        if any(w in q for w in _RISK_SIGNAL_WORDS):
+            return True
+    return False
+
+
+def _has_category_match(
+    refs: list[dict],
+    sources: set[str],
+    threshold: float = 0.6,
+) -> bool:
+    """refs 중 지정 카테고리 source에 의미 매칭(BM25-only 제외)이 있는지."""
+    for r in refs:
+        if r.get("match_source", "vector") == "bm25":
+            continue
+        if (r.get("similarity") or 0) < threshold:
+            continue
+        if (r.get("metadata") or {}).get("source", "") in sources:
+            return True
+    return False
+
+
 def _reclassify_by_evidence(
     risk_level: RiskLevel,
     analysis_status: str,
     refs: list[dict],
+    risks: list[RiskDetail] | None = None,
 ) -> tuple[RiskLevel, str]:
-    """LLM 위험 판정을 데이터 출처와 매칭 강도에 따라 등급 재분류.
+    """LLM 위험 판정을 매칭 카테고리·인용 근거로 재분류.
 
-    medium 자격은 'unfair_clause' 매칭만 인정 — judgment·law 매칭은 정상 조항에서도
-    흔하게 발생해 noise이고, 매칭 강도가 높다고 "위반 근거"인 것은 아니다.
-    임계값은 BM25-only 제외 + 의미 매칭 sim ≥ 0.7.
+    HIGH/MEDIUM 구분은 유사도 강도가 아닌 매칭 출처(category)가 결정:
+    - HIGH (법률 위반): law 카테고리 매칭(민법·주임법·약관규제법 등) 필수
+    - MEDIUM (계약자 불리): unfair_clause만 매칭. 위반 단정 어려움
+    - LOW (검토 권장): 매칭 근거 약하거나 quote에 위험 시그널 단어 없음
 
-    분류:
-    - HIGH (법률 위반):
-      - rule_high / kb_high (검증된 패턴)
-      - LLM high + very_strong unfair_clause 매칭 (sim ≥ 0.75)
-    - MEDIUM (계약자 불리):
-      - LLM high/medium + strong unfair_clause 매칭 (sim ≥ 0.7)
-    - LOW (검토 권장):
-      - LLM 위험 판정인데 strong unfair 매칭 없음
-    - SAFE: rule_safe / kb_safe / evidence_filtered / missing / LLM safe
+    위험 시그널 체크: LLM이 medium/high로 봐도 quote에 권리박탈·일방결정 같은
+    표현이 없으면 LOW로 강등. 본문 의미가 위험을 뒷받침하지 않으면 매칭만으로
+    위험으로 단정하지 않는다. CLAUDE.md 일반화 원칙에 따라 도메인 중립 단어 사용.
+
+    SAFE 분기는 변경 없음 (rule_safe/kb_safe/evidence_filtered/missing/LLM safe).
     """
     if analysis_status in ("rule_high", "rule_safe", "kb_high", "kb_safe",
                             "missing", "evidence_filtered"):
@@ -226,19 +269,30 @@ def _reclassify_by_evidence(
     if risk_level not in (RiskLevel.HIGH, RiskLevel.MEDIUM):
         return risk_level, analysis_status
 
-    def _has_strong_unfair(threshold: float) -> bool:
-        for r in refs:
-            if r.get("match_source", "vector") == "bm25":
-                continue
-            if (r.get("similarity", 0) or 0) < threshold:
-                continue
-            if (r.get("metadata") or {}).get("source", "") in _UNFAIR_CLAUSE_SOURCES:
-                return True
-        return False
+    # 위험 시그널 체크 — quote 본문에 위험 단어가 없으면 LOW로 강등
+    # (LLM이 KB 매칭만 보고 잘못 판정한 false-positive 차단)
+    if not _quote_has_risk_signal(risks or []):
+        return RiskLevel.LOW, "no_risk_signal"
 
-    if risk_level == RiskLevel.HIGH and _has_strong_unfair(0.75):
-        return RiskLevel.HIGH, "unfair_strong_evidence"
-    if _has_strong_unfair(0.7):
+    # 카테고리별 매칭 신호 (의미 매칭만, BM25-only 제외)
+    has_law = _has_category_match(refs, _LAW_SOURCES, threshold=0.6)
+    has_unfair = _has_category_match(refs, _UNFAIR_CLAUSE_SOURCES, threshold=0.6)
+
+    if risk_level == RiskLevel.HIGH:
+        # HIGH 자격: 법률(law) + unfair 매칭이 함께 있어야 명백한 법률 위반
+        if has_law and has_unfair:
+            return RiskLevel.HIGH, "law_violation"
+        # 법률 매칭만 — 위반 단정은 어려움, 보수적으로 MEDIUM
+        if has_law:
+            return RiskLevel.MEDIUM, "law_evidence"
+        # unfair만 → MEDIUM (계약자 불리, 위반 단정 X)
+        if has_unfair:
+            return RiskLevel.MEDIUM, "unfair_only"
+        # 어떤 매칭도 없는 LLM 단독 high → LOW
+        return RiskLevel.LOW, "llm_only_no_evidence"
+
+    # risk_level == MEDIUM
+    if has_law or has_unfair:
         return RiskLevel.MEDIUM, "unfair_evidence"
     return RiskLevel.LOW, "llm_only"
 
@@ -349,10 +403,12 @@ def _build_clause_analyses(
                     )
                     risks = substantiated
 
-            # 데이터 출처 기반 등급 재분류 — 등급 근거를 references_detail로 추적 가능하게.
+            # 카테고리·근거 기반 등급 재분류 — HIGH는 law 매칭 필수, MEDIUM은 unfair 매칭,
+            # quote에 위험 시그널 단어 없으면 LOW 강등.
             new_level, new_status = _reclassify_by_evidence(
                 risk_level, analysis_status,
                 per_clause_refs.get(clause.index, []),
+                risks=risks,
             )
             if new_level != risk_level:
                 logger.info(
