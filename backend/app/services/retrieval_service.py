@@ -300,6 +300,9 @@ def _stratified_select(
         entry["rrf_score"] = round(scores[doc_id], 6)
         # 표시용 통합 similarity (단일 source는 패널티 적용)
         entry["similarity"] = round(_finalize_display_score(entry), 4)
+        # 카테고리 stamp — 소비자(chat_chain 등)가 _LAW_SOURCES 사전을 재정의하지 않도록
+        # retrieval 단일 진실원에서 결정값을 박아 둔다.
+        entry["category"] = _categorize(entry)
         results.append(entry)
 
     return results
