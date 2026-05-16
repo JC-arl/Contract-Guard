@@ -36,13 +36,22 @@ SAFE_CLAUSE_BOOST = 1.5
 CLAUSE_PENALTY = 0.6
 
 # Stratified retrieval — 카테고리별 강제 보장 개수
-# 합계가 settings.retrieval_top_k(=5)와 일치해야 한다.
 # 우선순위: 법률 → 표준약관 → 판례 → 불공정약관 (사용자 의도: 법률·표준약관 위주, 판례는 회색지대 해석)
+# 합계가 top_k보다 작아도 무방 — 나머지는 점수 높은 순으로 보충된다.
 STRATIFIED_QUOTA = {
     "law": 2,            # 법률 본문 (강행규정 — 반드시 2개)
     "safe_clause": 1,    # 표준·안전 약관 (부합 시 안전 시그널)
     "judgment": 1,       # 판례·판결문 (회색지대 해석)
     "unfair_clause": 1,  # 불공정 약관 사례 (위험 시그널, 보조)
+}
+
+# 챗봇 모드(변호사 법률 Q&A)용 quota. 불공정약관 사례는 변호사 1차 리서치에
+# 불필요(질문이 약관 평가가 아님) → 0, 대신 판례 비중을 늘려 리서치 보조 강화.
+CHAT_STRATIFIED_QUOTA = {
+    "law": 2,
+    "judgment": 2,
+    "safe_clause": 1,
+    "unfair_clause": 0,
 }
 
 # 1차 retrieval 풀 크기 — 카테고리별 후보를 충분히 확보하기 위해 top_k의 N배로 가져온다.
@@ -203,17 +212,20 @@ def _stratified_select(
     scores: dict[str, float],
     entries: dict[str, dict],
     top_k: int,
+    quota: dict[str, int] | None = None,
 ) -> list[dict]:
     """카테고리 부스트 + stratified 선택 + 본문 중복 제거. 점수 출처 무관.
 
     절차:
       1. 카테고리별 점수 조정 (law 부스트, safe_clause 부스트, unfair_clause 페널티)
       2. 카테고리별 풀 분리·정렬
-      3. STRATIFIED_QUOTA에 따라 우선 선택 (본문 dedup 적용)
+      3. quota에 따라 우선 선택 (본문 dedup 적용). None이면 STRATIFIED_QUOTA(분석용) 사용.
       4. 카테고리 quota 미달 시 잔여 풀에서 점수 높은 순으로 보충
       5. 출력 순서: law → safe_clause → judgment → unfair_clause → other
          (LLM이 법률·표준약관을 먼저 읽고 마지막에 위험 사례 참조)
     """
+    if quota is None:
+        quota = STRATIFIED_QUOTA
     # 1. 카테고리별 점수 조정 (원본 dict 변경 방지 — 호출부 재사용 대비)
     scores = dict(scores)
     for doc_id, entry in entries.items():
@@ -239,21 +251,21 @@ def _stratified_select(
     for cat in pools:
         pools[cat].sort(reverse=True)
 
-    # 3. STRATIFIED_QUOTA 우선 선택 + 본문 dedup
+    # 3. quota 우선 선택 + 본문 dedup
     selected_ids: list[str] = []
     seen_dedup_keys: set[str] = set()
-    quota_remaining = dict(STRATIFIED_QUOTA)
+    quota_remaining = dict(quota)
 
     for cat in ("law", "safe_clause", "judgment", "unfair_clause"):
         for score, doc_id in pools.get(cat, []):
-            if quota_remaining[cat] <= 0:
+            if quota_remaining.get(cat, 0) <= 0:
                 break
             dkey = _dedup_key(entries[doc_id])
             if dkey in seen_dedup_keys:
                 continue
             seen_dedup_keys.add(dkey)
             selected_ids.append(doc_id)
-            quota_remaining[cat] -= 1
+            quota_remaining[cat] = quota_remaining.get(cat, 0) - 1
 
     # 4. quota 미달 시 (해당 카테고리 후보 부족) 나머지 점수 높은 항목으로 보충
     remaining = top_k - len(selected_ids)
@@ -288,6 +300,9 @@ def _stratified_select(
         entry["rrf_score"] = round(scores[doc_id], 6)
         # 표시용 통합 similarity (단일 source는 패널티 적용)
         entry["similarity"] = round(_finalize_display_score(entry), 4)
+        # 카테고리 stamp — 소비자(chat_chain 등)가 _LAW_SOURCES 사전을 재정의하지 않도록
+        # retrieval 단일 진실원에서 결정값을 박아 둔다.
+        entry["category"] = _categorize(entry)
         results.append(entry)
 
     return results
@@ -315,13 +330,18 @@ def retrieve_similar(
     text: str,
     top_k: int | None = None,
     contract_type: str | None = None,
+    mode: str = "analysis",
 ) -> list[dict]:
     """BM25 + 벡터 하이브리드 검색 후 stratified RRF로 결합.
 
-    카테고리별 보장 quota(law 2, safe_clause 1, judgment 1, unfair_clause 1)에 따라
-    법률 본문과 표준약관이 항상 top-K에 노출되도록 한다.
+    카테고리별 보장 quota에 따라 법률 본문과 표준약관이 항상 top-K에 노출되도록 한다.
+
+    mode:
+      - "analysis" (기본): STRATIFIED_QUOTA — 분석 파이프라인용 (law 2 / safe 1 / judgment 1 / unfair 1)
+      - "chat": CHAT_STRATIFIED_QUOTA — 변호사 Q&A용 (law 2 / judgment 2 / safe 1 / unfair 0)
     """
     k = top_k or settings.retrieval_top_k
+    quota = CHAT_STRATIFIED_QUOTA if mode == "chat" else STRATIFIED_QUOTA
 
     # 1차 retrieval 풀은 stratified 선택을 위해 충분히 크게 가져온다.
     pool_k = max(INITIAL_POOL_K, k * 4)
@@ -376,7 +396,7 @@ def retrieve_similar(
     if settings.reranker_enabled:
         scores = _apply_reranker(text, scores, entries)
 
-    combined = _stratified_select(scores, entries, top_k=k)
+    combined = _stratified_select(scores, entries, top_k=k, quota=quota)
     # markdown 이스케이프 제거 — KB에 `1\.` 같은 잔여 문자가 그대로 저장되어 있어
     # LLM 프롬프트·UI 표시에 노이즈가 됨. retrieval 출력 시점에서 일괄 정리.
     for entry in combined:
