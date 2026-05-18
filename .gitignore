@@ -12,6 +12,8 @@ data/documents/
 data/*.pdf
 data/*.json
 data/ocr/*
+data/bm25/*
+data/*
 
 # Python
 __pycache__/
