@@ -2,6 +2,7 @@ import { useState } from "react";
 import { BrowserRouter, Routes, Route, useNavigate } from "react-router-dom";
 import UploadPage from "./pages/UploadPage";
 import ResultPage from "./pages/ResultPage";
+import ChatPage from "./pages/ChatPage";
 import Sidebar from "./components/Sidebar";
 import { AnalysesProvider } from "./context/AnalysesContext";
 
@@ -47,6 +48,7 @@ function AppShell() {
         <main className="app-main">
           <Routes>
             <Route path="/" element={<UploadPage />} />
+            <Route path="/chat" element={<ChatPage />} />
             <Route path="/result" element={<ResultPage />} />
             <Route path="/result/:analysisId" element={<ResultPage />} />
           </Routes>

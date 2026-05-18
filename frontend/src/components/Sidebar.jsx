@@ -42,6 +42,7 @@ export default function Sidebar({ isOpen = true }) {
   const navigate = useNavigate();
   const { analysisId: currentId } = useParams();
   const { items, loading, error, refresh, remove } = useAnalyses();
+  const isChatActive = typeof window !== "undefined" && window.location.pathname === "/chat";
 
   const handleOpen = (id) => {
     navigate(`/result/${encodeURIComponent(id)}`);
@@ -93,6 +94,18 @@ export default function Sidebar({ isOpen = true }) {
           <line x1="5" y1="12" x2="19" y2="12" />
         </svg>
         새 분석
+      </button>
+
+      <button
+        type="button"
+        className={`sidebar-new${isChatActive ? " active" : ""}`}
+        onClick={() => navigate("/chat")}
+        title="법령·판례 1차 리서치 보조"
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+        </svg>
+        법률 Q&amp;A 챗봇
       </button>
 
       <div className="sidebar-list">
