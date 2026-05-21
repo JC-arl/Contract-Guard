@@ -24,6 +24,21 @@ api.interceptors.request.use((config) => {
   return config;
 });
 
+// 세션 만료/미인증(401) 시 로그인 화면("/")으로 보낸다.
+// /api/auth/* 호출(me·login·logout)은 정상적으로 401이 날 수 있으므로 리다이렉트 제외 — 무한루프 방지.
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const status = error.response?.status;
+    const url = error.config?.url || "";
+    const isAuthEndpoint = url.includes("/api/auth/");
+    if (status === 401 && !isAuthEndpoint && window.location.pathname !== "/") {
+      window.location.href = "/";
+    }
+    return Promise.reject(error);
+  },
+);
+
 // 계약서 파일 업로드 및 분석 요청 (PDF, DOCX)
 export async function uploadDocument(file) {
   const formData = new FormData();

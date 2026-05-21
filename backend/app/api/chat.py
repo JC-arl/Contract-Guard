@@ -1,7 +1,8 @@
 import logging
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 
+from backend.app.auth.dependencies import get_current_user, require_csrf
 from backend.app.models.chat import ChatRequest, ChatResponse
 from backend.app.rag import chat_chain
 
@@ -9,7 +10,11 @@ logger = logging.getLogger(__name__)
 router = APIRouter()
 
 
-@router.post("/chat", response_model=ChatResponse)
+@router.post(
+    "/chat",
+    response_model=ChatResponse,
+    dependencies=[Depends(get_current_user), Depends(require_csrf)],
+)
 async def chat_endpoint(req: ChatRequest):
     """변호사용 법률 Q&A 챗봇. 직전 2턴까지의 history를 컨텍스트로 사용한다."""
     if not req.message or not req.message.strip():

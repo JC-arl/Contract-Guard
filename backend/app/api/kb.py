@@ -1,11 +1,12 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from backend.app.auth.dependencies import get_current_user
 from backend.app.services import chroma_service
 from backend.app.contract_types import SUPPORTED_CONTRACT_TYPES
 
 router = APIRouter()
 
 
-@router.get("/kb/status")
+@router.get("/kb/status", dependencies=[Depends(get_current_user)])
 async def kb_status():
     status = chroma_service.collection_status()
     by_source = chroma_service.count_by_source()

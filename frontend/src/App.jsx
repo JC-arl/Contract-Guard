@@ -6,6 +6,7 @@ import ChatPage from "./pages/ChatPage";
 import LoginPage from "./pages/LoginPage";
 import Sidebar from "./components/Sidebar";
 import UserMenu from "./components/UserMenu";
+import ProtectedRoute from "./components/ProtectedRoute";
 import { AnalysesProvider } from "./context/AnalysesContext";
 import { AuthProvider } from "./context/AuthContext";
 
@@ -74,9 +75,11 @@ export default function App() {
           <Route path="/" element={<LoginPage />} />
           <Route
             element={
-              <AnalysesProvider>
-                <AppShell />
-              </AnalysesProvider>
+              <ProtectedRoute>
+                <AnalysesProvider>
+                  <AppShell />
+                </AnalysesProvider>
+              </ProtectedRoute>
             }
           >
             <Route path="/home" element={<UploadPage />} />

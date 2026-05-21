@@ -1,6 +1,7 @@
 import uuid
 from pathlib import Path
-from fastapi import APIRouter, UploadFile, File, HTTPException
+from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
+from backend.app.auth.dependencies import get_current_user, require_csrf
 from backend.app.models.analysis import AnalysisResponse
 from backend.app.services import document_service, clause_service, analysis_service
 from backend.app.utils.file_utils import save_upload
@@ -8,7 +9,11 @@ from backend.app.utils.file_utils import save_upload
 router = APIRouter()
 
 
-@router.post("/documents/upload", response_model=AnalysisResponse)
+@router.post(
+    "/documents/upload",
+    response_model=AnalysisResponse,
+    dependencies=[Depends(get_current_user), Depends(require_csrf)],
+)
 async def upload_and_analyze(
     file: UploadFile = File(...),
 ):
