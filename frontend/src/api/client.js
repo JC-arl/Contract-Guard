@@ -3,6 +3,25 @@ import axios from "axios";
 const api = axios.create({
   baseURL: "/",
   timeout: 600000, // 10분 (조항별 개별 LLM 분석 시간 고려)
+  withCredentials: true, // 세션/CSRF 쿠키 동봉 (RBAC)
+});
+
+// double-submit CSRF: 변경 메서드 요청에 cg_csrf 쿠키 값을 X-CSRF-Token 헤더로 동봉.
+function readCookie(name) {
+  const m = document.cookie.match(new RegExp("(?:^|; )" + name + "=([^;]*)"));
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
+api.interceptors.request.use((config) => {
+  const method = (config.method || "get").toLowerCase();
+  if (["post", "put", "patch", "delete"].includes(method)) {
+    const csrf = readCookie("cg_csrf");
+    if (csrf) {
+      config.headers = config.headers || {};
+      config.headers["X-CSRF-Token"] = csrf;
+    }
+  }
+  return config;
 });
 
 // 계약서 파일 업로드 및 분석 요청 (PDF, DOCX)

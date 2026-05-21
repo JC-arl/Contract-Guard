@@ -55,7 +55,7 @@ export default function Sidebar({ isOpen = true }) {
     try {
       await remove(item.id);
       if (currentId === item.id) {
-        navigate("/");
+        navigate("/home");
       }
     } catch (err) {
       window.alert(err?.message || "삭제에 실패했습니다.");
@@ -87,7 +87,7 @@ export default function Sidebar({ isOpen = true }) {
       <button
         type="button"
         className="sidebar-new"
-        onClick={() => navigate("/")}
+        onClick={() => navigate("/home")}
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <line x1="12" y1="5" x2="12" y2="19" />
