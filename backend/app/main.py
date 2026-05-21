@@ -1,9 +1,19 @@
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from backend.app.api import health, documents, analyses, kb, chat
+from backend.app.db import init_db
 
-app = FastAPI(title="K&H2", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    init_db()
+    yield
+
+
+app = FastAPI(title="K&H2", version="0.1.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
