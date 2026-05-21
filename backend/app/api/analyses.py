@@ -6,10 +6,11 @@ from datetime import datetime, timezone
 from pathlib import Path
 from urllib.parse import quote
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Depends
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
+from backend.app.auth.dependencies import get_current_user, require_csrf
 from backend.app.config import settings
 from backend.app.models.analysis import AnalysisResponse, AnalysisResult, ClauseAnalysis
 from backend.app.services.export_service import export_analysis, supported_formats
@@ -65,7 +66,11 @@ class AnalysisSummary(BaseModel):
     risky_clauses: int
 
 
-@router.get("/analyses", response_model=list[AnalysisSummary])
+@router.get(
+    "/analyses",
+    response_model=list[AnalysisSummary],
+    dependencies=[Depends(get_current_user)],
+)
 async def list_analyses():
     """저장된 모든 분석 결과의 요약을 최신순으로 반환."""
     results_dir = Path(settings.results_dir)
@@ -98,13 +103,21 @@ async def list_analyses():
     return summaries
 
 
-@router.get("/analyses/{analysis_id}", response_model=AnalysisResponse)
+@router.get(
+    "/analyses/{analysis_id}",
+    response_model=AnalysisResponse,
+    dependencies=[Depends(get_current_user)],
+)
 async def get_analysis(analysis_id: str):
     result = _load_result(analysis_id)
     return AnalysisResponse(status="completed", result=result)
 
 
-@router.delete("/analyses/{analysis_id}", status_code=204)
+@router.delete(
+    "/analyses/{analysis_id}",
+    status_code=204,
+    dependencies=[Depends(get_current_user), Depends(require_csrf)],
+)
 async def delete_analysis(analysis_id: str):
     """분석 결과 JSON 파일을 삭제."""
     _validate_analysis_id(analysis_id)
@@ -122,7 +135,11 @@ class ClauseOverrideUpdate(BaseModel):
     text: str | None = None  # null이면 사용자 수정안 제거(원안/권고안으로 회귀)
 
 
-@router.patch("/analyses/{analysis_id}/clauses/{clause_index}", response_model=ClauseAnalysis)
+@router.patch(
+    "/analyses/{analysis_id}/clauses/{clause_index}",
+    response_model=ClauseAnalysis,
+    dependencies=[Depends(get_current_user), Depends(require_csrf)],
+)
 async def update_clause_override(
     analysis_id: str,
     clause_index: int,
@@ -153,7 +170,7 @@ async def update_clause_override(
     return target
 
 
-@router.get("/analyses/{analysis_id}/export")
+@router.get("/analyses/{analysis_id}/export", dependencies=[Depends(get_current_user)])
 async def export_contract(analysis_id: str, format: str = "docx"):
     """분석 결과로 수정안이 반영된 계약서를 다운로드.
 

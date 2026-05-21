@@ -3,7 +3,41 @@ import axios from "axios";
 const api = axios.create({
   baseURL: "/",
   timeout: 600000, // 10분 (조항별 개별 LLM 분석 시간 고려)
+  withCredentials: true, // 세션/CSRF 쿠키 동봉 (RBAC)
 });
+
+// double-submit CSRF: 변경 메서드 요청에 cg_csrf 쿠키 값을 X-CSRF-Token 헤더로 동봉.
+function readCookie(name) {
+  const m = document.cookie.match(new RegExp("(?:^|; )" + name + "=([^;]*)"));
+  return m ? decodeURIComponent(m[1]) : null;
+}
+
+api.interceptors.request.use((config) => {
+  const method = (config.method || "get").toLowerCase();
+  if (["post", "put", "patch", "delete"].includes(method)) {
+    const csrf = readCookie("cg_csrf");
+    if (csrf) {
+      config.headers = config.headers || {};
+      config.headers["X-CSRF-Token"] = csrf;
+    }
+  }
+  return config;
+});
+
+// 세션 만료/미인증(401) 시 로그인 화면("/")으로 보낸다.
+// /api/auth/* 호출(me·login·logout)은 정상적으로 401이 날 수 있으므로 리다이렉트 제외 — 무한루프 방지.
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const status = error.response?.status;
+    const url = error.config?.url || "";
+    const isAuthEndpoint = url.includes("/api/auth/");
+    if (status === 401 && !isAuthEndpoint && window.location.pathname !== "/") {
+      window.location.href = "/";
+    }
+    return Promise.reject(error);
+  },
+);
 
 // 계약서 파일 업로드 및 분석 요청 (PDF, DOCX)
 export async function uploadDocument(file) {

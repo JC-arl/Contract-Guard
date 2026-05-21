@@ -39,6 +39,18 @@ class Settings(BaseSettings):
     documents_dir: str = str(DATA_DIR / "documents")
     results_dir: str = str(DATA_DIR / "results")
 
+    # 인증/세션 — RBAC. 시크릿은 .env에서 주입 (없으면 startup에서 거부)
+    database_url: str = f"sqlite:///{DATA_DIR / 'app.db'}"
+    session_secret_key: str = ""
+    session_ttl_days: int = 14
+    secure_cookie: bool = False
+
+    # 최초 Admin 계정 — .env에서 주입. 부팅 시 해당 이메일이 없으면 자동 생성한다.
+    # 셋 다 채워져 있을 때만 시드. 비워두면 시드를 건너뛴다.
+    admin_email: str = ""
+    admin_password: str = ""
+    admin_name: str = "관리자"
+
     model_config = {"env_file": str(BASE_DIR / ".env"), "extra": "ignore"}
 
 

@@ -1,15 +1,20 @@
 import { useState } from "react";
-import { BrowserRouter, Routes, Route, useNavigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Outlet, useNavigate } from "react-router-dom";
 import UploadPage from "./pages/UploadPage";
 import ResultPage from "./pages/ResultPage";
+import ChatPage from "./pages/ChatPage";
+import LoginPage from "./pages/LoginPage";
 import Sidebar from "./components/Sidebar";
+import UserMenu from "./components/UserMenu";
+import ProtectedRoute from "./components/ProtectedRoute";
 import { AnalysesProvider } from "./context/AnalysesContext";
+import { AuthProvider } from "./context/AuthContext";
 
 function Header({ sidebarOpen, onToggleSidebar }) {
   const navigate = useNavigate();
 
   return (
-    <header className="app-header" onClick={() => navigate("/")} style={{ cursor: "pointer" }}>
+    <header className="app-header">
       <button
         type="button"
         className="sidebar-toggle"
@@ -26,8 +31,11 @@ function Header({ sidebarOpen, onToggleSidebar }) {
           <line x1="3" y1="18" x2="21" y2="18" />
         </svg>
       </button>
-      <div className="header-inner">
+      <div className="header-inner" onClick={() => navigate("/home")} style={{ cursor: "pointer" }}>
         <img src="/logo.png" alt="K&H2" className="header-logo" />
+      </div>
+      <div className="header-actions">
+        <UserMenu />
       </div>
     </header>
   );
@@ -45,11 +53,7 @@ function AppShell() {
       <div className="app-body">
         <Sidebar isOpen={sidebarOpen} />
         <main className="app-main">
-          <Routes>
-            <Route path="/" element={<UploadPage />} />
-            <Route path="/result" element={<ResultPage />} />
-            <Route path="/result/:analysisId" element={<ResultPage />} />
-          </Routes>
+          <Outlet />
         </main>
       </div>
       <footer className="app-footer">
@@ -66,9 +70,25 @@ function AppShell() {
 export default function App() {
   return (
     <BrowserRouter>
-      <AnalysesProvider>
-        <AppShell />
-      </AnalysesProvider>
+      <AuthProvider>
+        <Routes>
+          <Route path="/" element={<LoginPage />} />
+          <Route
+            element={
+              <ProtectedRoute>
+                <AnalysesProvider>
+                  <AppShell />
+                </AnalysesProvider>
+              </ProtectedRoute>
+            }
+          >
+            <Route path="/home" element={<UploadPage />} />
+            <Route path="/chat" element={<ChatPage />} />
+            <Route path="/result" element={<ResultPage />} />
+            <Route path="/result/:analysisId" element={<ResultPage />} />
+          </Route>
+        </Routes>
+      </AuthProvider>
     </BrowserRouter>
   );
 }

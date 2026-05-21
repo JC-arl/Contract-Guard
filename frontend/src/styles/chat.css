@@ -1,0 +1,361 @@
+/* 변호사용 법률 Q&A 챗봇 페이지 스타일.
+ * ResultPage의 ref-grouped* 클래스를 그대로 재사용하여 출처 카드는 같은 룩앤필을 유지한다.
+ */
+
+.chat-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  max-height: calc(100vh - 140px);
+  padding: 20px 24px 16px;
+  gap: 12px;
+}
+
+.chat-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.chat-header-title h1 {
+  margin: 0;
+  font-size: 20px;
+  color: var(--text);
+}
+
+.chat-header-sub {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.chat-header-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 8px;
+}
+
+.chat-domain-toggle {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.chat-domain-btn {
+  padding: 6px 12px;
+  border: 1px solid var(--border);
+  background: white;
+  border-radius: var(--radius-pill);
+  font-size: 12px;
+  color: var(--text-sub);
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.chat-domain-btn:hover:not(:disabled) {
+  border-color: var(--gold);
+  color: var(--gold);
+}
+
+.chat-domain-btn.active {
+  background: var(--gold);
+  color: white;
+  border-color: var(--gold);
+}
+
+.chat-domain-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.chat-clear-btn {
+  padding: 4px 10px;
+  border: 1px solid var(--border);
+  background: white;
+  border-radius: var(--radius-sm);
+  font-size: 12px;
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.chat-clear-btn:hover:not(:disabled) {
+  border-color: var(--risk-high);
+  color: var(--risk-high);
+}
+
+.chat-clear-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+/* ─ 메시지 리스트 ───────────────────────────────── */
+.chat-list {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 8px 4px;
+}
+
+.chat-empty {
+  margin: auto;
+  text-align: center;
+  color: var(--text-sub);
+  max-width: 560px;
+}
+
+.chat-empty > p {
+  margin: 0 0 6px;
+}
+
+.chat-empty-sub {
+  color: var(--text-muted);
+  font-size: 13px;
+  margin-top: 4px !important;
+}
+
+.chat-empty-examples {
+  margin-top: 16px;
+  padding: 0;
+  list-style: none;
+  text-align: left;
+  font-size: 13px;
+  color: var(--text-muted);
+}
+
+.chat-empty-examples li {
+  padding: 6px 10px;
+  border-left: 2px solid var(--gold-dim2);
+  margin-bottom: 4px;
+  background: var(--gold-dim);
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+}
+
+.chat-msg {
+  display: flex;
+}
+
+.chat-msg-user {
+  justify-content: flex-end;
+}
+
+.chat-msg-user .chat-msg-bubble {
+  max-width: 70%;
+  padding: 10px 14px;
+  background: var(--gold);
+  color: white;
+  border-radius: var(--radius) var(--radius) 4px var(--radius);
+  white-space: pre-wrap;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.chat-msg-assistant {
+  justify-content: flex-start;
+}
+
+.chat-msg-assistant .chat-msg-body {
+  max-width: 100%;
+  width: 100%;
+  background: white;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 14px 16px;
+}
+
+.chat-msg-meta {
+  display: flex;
+  gap: 10px;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+}
+
+.chat-msg-domain {
+  padding: 2px 8px;
+  background: var(--gold-dim);
+  color: var(--gold);
+  border-radius: var(--radius-pill);
+}
+
+.chat-msg-status {
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+}
+
+.chat-msg-status-parse_failed,
+.chat-msg-status-llm_error {
+  background: var(--risk-high-bg);
+  color: var(--risk-high);
+}
+
+.chat-msg-conclusion {
+  font-size: 15px;
+  line-height: 1.55;
+  color: var(--text);
+  font-weight: 500;
+  margin-bottom: 10px;
+}
+
+.chat-msg-details {
+  margin: 10px 0 14px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+  background: var(--bg);
+}
+
+.chat-msg-details > summary {
+  cursor: pointer;
+  padding: 8px 12px;
+  font-size: 13px;
+  color: var(--text-sub);
+  user-select: none;
+}
+
+.chat-msg-details > summary:hover {
+  color: var(--gold);
+}
+
+.chat-msg-answer {
+  margin: 0;
+  padding: 0 12px 12px;
+  white-space: pre-wrap;
+  font-family: inherit;
+  font-size: 13.5px;
+  line-height: 1.65;
+  color: var(--text-sub);
+}
+
+.chat-msg-refs {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px dashed var(--border);
+}
+
+.chat-msg-refs-title {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 8px;
+  font-weight: 500;
+}
+
+/* 챗봇 출처 패널 — ResultPage의 ref-grouped 스타일을 그대로 사용하되 미세 조정 */
+.chat-ref-grouped {
+  /* 컨테이너는 ResultPage CSS에서 그리드 레이아웃을 받음. 챗봇은 풀 너비 사용. */
+}
+
+.ref-grouped-item-cited {
+  background: var(--gold-dim);
+  border-radius: var(--radius-sm);
+}
+
+.chat-ref-cited-badge {
+  margin-left: 6px;
+  padding: 1px 6px;
+  font-size: 10px;
+  background: var(--gold);
+  color: white;
+  border-radius: var(--radius-pill);
+}
+
+.chat-ref-article {
+  margin: 4px 0 2px;
+  font-size: 11px;
+  color: var(--gold);
+  font-weight: 500;
+}
+
+/* ─ 로딩 ───────────────────────────────── */
+.chat-loading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.chat-loading-dot {
+  width: 6px;
+  height: 6px;
+  background: var(--gold);
+  border-radius: 50%;
+  animation: chatDot 1.2s infinite ease-in-out;
+}
+
+.chat-loading-dot:nth-child(2) { animation-delay: 0.15s; }
+.chat-loading-dot:nth-child(3) { animation-delay: 0.3s; }
+
+.chat-loading-text {
+  margin-left: 6px;
+}
+
+@keyframes chatDot {
+  0%, 80%, 100% { opacity: 0.3; transform: scale(0.9); }
+  40% { opacity: 1; transform: scale(1.1); }
+}
+
+.chat-error {
+  padding: 10px 14px;
+  background: var(--risk-high-bg);
+  color: var(--risk-high);
+  border-radius: var(--radius-sm);
+  font-size: 13px;
+}
+
+/* ─ 입력 ───────────────────────────────── */
+.chat-input-row {
+  display: flex;
+  gap: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.chat-input {
+  flex: 1;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  font-family: inherit;
+  font-size: 14px;
+  resize: none;
+  background: white;
+  color: var(--text);
+}
+
+.chat-input:focus {
+  outline: none;
+  border-color: var(--gold);
+  box-shadow: 0 0 0 3px var(--gold-dim2);
+}
+
+.chat-input:disabled {
+  background: var(--bg-alt);
+  cursor: not-allowed;
+}
+
+.chat-submit {
+  padding: 0 22px;
+  background: var(--gold);
+  color: white;
+  border: none;
+  border-radius: var(--radius);
+  font-size: 14px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.chat-submit:hover:not(:disabled) {
+  background: var(--gold-light);
+}
+
+.chat-submit:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
