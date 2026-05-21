@@ -1,7 +1,7 @@
 import secrets
 from datetime import datetime, timedelta
 
-from passlib.context import CryptContext
+import bcrypt
 from sqlalchemy.orm import Session as DBSession
 
 from backend.app.config import settings
@@ -11,15 +11,23 @@ SESSION_COOKIE = "cg_session"
 CSRF_COOKIE = "cg_csrf"
 CSRF_HEADER = "x-csrf-token"
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto", bcrypt__rounds=12)
+_BCRYPT_ROUNDS = 12
+
+
+def _to_bytes(password: str) -> bytes:
+    # bcrypt는 72바이트까지만 사용. hash/verify에 동일하게 적용해 일관성 유지.
+    return password.encode("utf-8")[:72]
 
 
 def hash_password(password: str) -> str:
-    return pwd_context.hash(password)
+    return bcrypt.hashpw(_to_bytes(password), bcrypt.gensalt(rounds=_BCRYPT_ROUNDS)).decode("utf-8")
 
 
 def verify_password(password: str, password_hash: str) -> bool:
-    return pwd_context.verify(password, password_hash)
+    try:
+        return bcrypt.checkpw(_to_bytes(password), password_hash.encode("utf-8"))
+    except ValueError:
+        return False
 
 
 def create_session(db: DBSession, user: User) -> SessionModel:

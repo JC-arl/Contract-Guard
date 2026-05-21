@@ -14,4 +14,4 @@ hwp2yaml
 rank-bm25
 reportlab
 sqlalchemy
-passlib[bcrypt]
+bcrypt
