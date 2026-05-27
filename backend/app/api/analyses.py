@@ -59,6 +59,8 @@ class AnalysisSummary(BaseModel):
     created_at: str
     total_clauses: int
     risky_clauses: int
+    owner_id: int | None = None       # 사이드바에서 "내 것 vs 팀원 것" 구분에 사용
+    owner_name: str | None = None     # 팀원 분석을 누가 만들었는지 표시
 
 
 @router.get("/analyses", response_model=list[AnalysisSummary])
@@ -71,7 +73,10 @@ async def list_analyses(
     - Lawyer/Admin: 본인이 만든 것만
     - Manager: 본인 것 + 같은 팀원이 만든 것
     """
-    q = db.query(AnalysisMeta)
+    # 사이드바에서 owner 명을 보여주기 위해 User를 outerjoin (owner_id NULL인 레거시 메타 호환)
+    q = db.query(AnalysisMeta, User.display_name, User.email).outerjoin(
+        User, AnalysisMeta.owner_id == User.id
+    )
     if user.role == UserRole.manager and user.team_id is not None:
         q = q.filter(
             or_(AnalysisMeta.owner_id == user.id, AnalysisMeta.team_id == user.team_id)
@@ -89,8 +94,10 @@ async def list_analyses(
             created_at=m.created_at.replace(tzinfo=timezone.utc).isoformat(timespec="seconds"),
             total_clauses=m.total_clauses,
             risky_clauses=m.risky_clauses,
+            owner_id=m.owner_id,
+            owner_name=display_name or (email.split("@")[0] if email else None),
         )
-        for m in rows
+        for (m, display_name, email) in rows
     ]
 
 

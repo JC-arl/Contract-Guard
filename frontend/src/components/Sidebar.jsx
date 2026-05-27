@@ -1,5 +1,6 @@
 import { useNavigate, useParams } from "react-router-dom";
 import { useAnalyses } from "../context/AnalysesContext";
+import { useAuth } from "../context/AuthContext";
 
 const CONTRACT_LABELS = {
   lease: "임대차",
@@ -42,6 +43,7 @@ export default function Sidebar({ isOpen = true }) {
   const navigate = useNavigate();
   const { analysisId: currentId } = useParams();
   const { items, loading, error, refresh, remove } = useAnalyses();
+  const { currentUser } = useAuth();
   const isChatActive = typeof window !== "undefined" && window.location.pathname === "/chat";
 
   const handleOpen = (id) => {
@@ -119,6 +121,9 @@ export default function Sidebar({ isOpen = true }) {
 
         {items.map((item) => {
           const isActive = currentId === item.id;
+          // 팀원이 만든 분석이면 작성자 명 표시 (본인 분석은 군더더기라 생략)
+          const isMine = currentUser && item.owner_id === currentUser.id;
+          const showOwner = !isMine && item.owner_name;
           return (
             <div
               key={item.id}
@@ -139,6 +144,14 @@ export default function Sidebar({ isOpen = true }) {
                 </div>
                 <div className="sidebar-item__meta">
                   <span className="sidebar-badge">{contractLabel(item.contract_type)}</span>
+                  {showOwner && (
+                    <>
+                      <span className="sidebar-dot">·</span>
+                      <span className="sidebar-owner" title={`작성자: ${item.owner_name}`}>
+                        {item.owner_name}
+                      </span>
+                    </>
+                  )}
                   <span className="sidebar-dot">·</span>
                   <span className="sidebar-time">{formatRelativeTime(item.created_at)}</span>
                 </div>
