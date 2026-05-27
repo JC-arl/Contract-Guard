@@ -18,27 +18,51 @@ from backend.app.models.auth import (
 )
 
 logger = logging.getLogger(__name__)
+
+# 라우터 레벨: admin 또는 manager 모두 진입 가능 (개별 변경 엔드포인트에서 admin만으로 더 좁힘)
 router = APIRouter(
     prefix="/admin",
     tags=["admin"],
-    dependencies=[Depends(require_role(UserRole.admin))],
+    dependencies=[Depends(require_role(UserRole.admin, UserRole.manager))],
 )
+
+# 변경 메서드 전용 추가 가드
+_admin_only = Depends(require_role(UserRole.admin))
 
 
 def _iso(dt: datetime) -> str:
-    """DB에 naive UTC로 저장된 datetime → ISO8601(UTC) 문자열."""
     return dt.replace(tzinfo=timezone.utc).isoformat(timespec="seconds")
+
+
+def _current_user(me: User = Depends(require_role(UserRole.admin, UserRole.manager))) -> User:
+    """라우터 데코레이터의 의존성을 핸들러 인자로 노출하기 위한 헬퍼."""
+    return me
 
 
 # ===== 대시보드 통계 =====
 
 @router.get("/stats", response_model=AdminStats)
-def get_stats(db: DBSession = Depends(get_db)):
-    total_users = db.query(func.count(User.id)).scalar() or 0
-    active_users = db.query(func.count(User.id)).filter(User.is_active.is_(True)).scalar() or 0
-    total_teams = db.query(func.count(Team.id)).scalar() or 0
+def get_stats(me: User = Depends(_current_user), db: DBSession = Depends(get_db)):
+    """Admin: 시스템 전체 통계. Manager: 자기 팀으로 스코프."""
     week_ago = datetime.utcnow() - timedelta(days=7)
-    signups_7d = db.query(func.count(User.id)).filter(User.created_at >= week_ago).scalar() or 0
+
+    total_teams = db.query(func.count(Team.id)).scalar() or 0  # 모든 role이 전체 팀 수 확인 가능
+
+    if me.role == UserRole.admin:
+        total_users = db.query(func.count(User.id)).scalar() or 0
+        active_users = db.query(func.count(User.id)).filter(User.is_active.is_(True)).scalar() or 0
+        signups_7d = db.query(func.count(User.id)).filter(User.created_at >= week_ago).scalar() or 0
+    else:
+        # Manager: 사용자 관련 수치는 자기 팀원만 집계. 팀 수만 시스템 전체.
+        if me.team_id is None:
+            return AdminStats(
+                total_users=0, active_users=0, total_teams=total_teams, signups_last_7_days=0,
+            )
+        team_users = db.query(User).filter(User.team_id == me.team_id)
+        total_users = team_users.count()
+        active_users = team_users.filter(User.is_active.is_(True)).count()
+        signups_7d = team_users.filter(User.created_at >= week_ago).count()
+
     return AdminStats(
         total_users=total_users,
         active_users=active_users,
@@ -63,21 +87,24 @@ def _user_to_summary(user: User, team_name: str | None) -> UserSummary:
 
 
 @router.get("/users", response_model=list[UserSummary])
-def list_users(db: DBSession = Depends(get_db)):
-    """전체 사용자 + 팀 이름. 최신 가입순."""
-    rows = (
+def list_users(me: User = Depends(_current_user), db: DBSession = Depends(get_db)):
+    """Admin: 전체 사용자. Manager: 자기 팀원만."""
+    q = (
         db.query(User, Team.name)
         .outerjoin(Team, User.team_id == Team.id)
-        .order_by(User.created_at.desc())
-        .all()
     )
+    if me.role == UserRole.manager:
+        if me.team_id is None:
+            return []
+        q = q.filter(User.team_id == me.team_id)
+    rows = q.order_by(User.created_at.desc()).all()
     return [_user_to_summary(u, name) for (u, name) in rows]
 
 
 @router.patch(
     "/users/{user_id}",
     response_model=UserSummary,
-    dependencies=[Depends(require_csrf)],
+    dependencies=[_admin_only, Depends(require_csrf)],
 )
 def update_user(
     user_id: int,
@@ -85,14 +112,13 @@ def update_user(
     db: DBSession = Depends(get_db),
     me: User = Depends(require_role(UserRole.admin)),
 ):
-    """보낸 필드만 수정 (PATCH 시맨틱). team_id=null 명시 시 팀 해제로 해석."""
+    """Admin 전용. 보낸 필드만 수정 (PATCH 시맨틱)."""
     target = db.get(User, user_id)
     if target is None:
         raise HTTPException(status_code=404, detail="사용자를 찾을 수 없습니다.")
 
-    sent = body.model_fields_set  # 보낸 필드 집합
+    sent = body.model_fields_set
 
-    # 자기 자신 강등/비활성 차단 — 시스템 잠금 방지
     if target.id == me.id:
         if "role" in sent and body.role != UserRole.admin:
             raise HTTPException(status_code=400, detail="자기 자신의 권한을 강등할 수 없습니다.")
@@ -106,18 +132,15 @@ def update_user(
     if "role" in sent and body.role is not None:
         target.role = body.role
     if "team_id" in sent:
-        # null 허용(팀 해제)
         if body.team_id is not None:
             team = db.get(Team, body.team_id)
             if team is None:
                 raise HTTPException(status_code=400, detail="존재하지 않는 팀입니다.")
         target.team_id = body.team_id
 
-    # 매니저였던 사용자가 팀을 떠나거나 역할이 바뀌면 해당 팀의 manager_id를 풀어준다 (정합성)
+    # 매니저였던 사용자가 팀을 떠나거나 역할이 바뀌면 해당 팀의 manager_id 해제 (정합성)
     if target.role != UserRole.manager or target.team_id is None:
-        former_team = (
-            db.query(Team).filter(Team.manager_id == target.id).first()
-        )
+        former_team = db.query(Team).filter(Team.manager_id == target.id).first()
         if former_team is not None and (
             target.team_id != former_team.id or target.role != UserRole.manager
         ):
@@ -144,7 +167,7 @@ def _team_to_summary(team: Team, manager_name: str | None, member_count: int) ->
 
 @router.get("/teams", response_model=list[TeamSummary])
 def list_teams(db: DBSession = Depends(get_db)):
-    # 멤버 수 서브쿼리
+    """Admin/Manager 모두 전체 팀 구조를 조회 가능. 변경 권한은 admin 전용."""
     member_counts = dict(
         db.query(User.team_id, func.count(User.id))
         .filter(User.team_id.isnot(None))
@@ -163,7 +186,6 @@ def list_teams(db: DBSession = Depends(get_db)):
 
 
 def _validate_manager_assignment(db: DBSession, team_id: int, manager_id: int | None) -> None:
-    """매니저로 임명할 사용자는 해당 팀 소속이어야 한다 (정합성)."""
     if manager_id is None:
         return
     user = db.get(User, manager_id)
@@ -180,7 +202,7 @@ def _validate_manager_assignment(db: DBSession, team_id: int, manager_id: int | 
     "/teams",
     response_model=TeamSummary,
     status_code=status.HTTP_201_CREATED,
-    dependencies=[Depends(require_csrf)],
+    dependencies=[_admin_only, Depends(require_csrf)],
 )
 def create_team(body: TeamCreate, db: DBSession = Depends(get_db)):
     name = body.name.strip()
@@ -191,15 +213,14 @@ def create_team(body: TeamCreate, db: DBSession = Depends(get_db)):
 
     team = Team(name=name)
     db.add(team)
-    db.flush()  # team.id 확보
+    db.flush()
 
     if body.manager_id is not None:
         _validate_manager_assignment(db, team.id, body.manager_id)
         team.manager_id = body.manager_id
-        if body.manager_id is not None:
-            mgr = db.get(User, body.manager_id)
-            if mgr is not None and mgr.role != UserRole.admin:
-                mgr.role = UserRole.manager  # 매니저 임명 시 role 동기화
+        mgr = db.get(User, body.manager_id)
+        if mgr is not None and mgr.role != UserRole.admin:
+            mgr.role = UserRole.manager
 
     db.commit()
     db.refresh(team)
@@ -213,7 +234,7 @@ def create_team(body: TeamCreate, db: DBSession = Depends(get_db)):
 @router.patch(
     "/teams/{team_id}",
     response_model=TeamSummary,
-    dependencies=[Depends(require_csrf)],
+    dependencies=[_admin_only, Depends(require_csrf)],
 )
 def update_team(team_id: int, body: TeamUpdate, db: DBSession = Depends(get_db)):
     team = db.get(Team, team_id)
@@ -231,7 +252,6 @@ def update_team(team_id: int, body: TeamUpdate, db: DBSession = Depends(get_db))
 
     if "manager_id" in sent:
         _validate_manager_assignment(db, team.id, body.manager_id)
-        # 이전 매니저는 자동 강등(Lawyer)
         if team.manager_id is not None and team.manager_id != body.manager_id:
             old_mgr = db.get(User, team.manager_id)
             if old_mgr is not None and old_mgr.role == UserRole.manager:
@@ -254,14 +274,13 @@ def update_team(team_id: int, body: TeamUpdate, db: DBSession = Depends(get_db))
 @router.delete(
     "/teams/{team_id}",
     status_code=204,
-    dependencies=[Depends(require_csrf)],
+    dependencies=[_admin_only, Depends(require_csrf)],
 )
 def delete_team(team_id: int, db: DBSession = Depends(get_db)):
     team = db.get(Team, team_id)
     if team is None:
         raise HTTPException(status_code=404, detail="팀을 찾을 수 없습니다.")
 
-    # 멤버는 team_id NULL (FK ondelete=SET NULL이 처리하지만 명시적으로도 안전)
     db.query(User).filter(User.team_id == team.id).update({User.team_id: None})
     db.delete(team)
     db.commit()
