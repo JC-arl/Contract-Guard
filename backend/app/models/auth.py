@@ -48,3 +48,50 @@ class UserPublic(BaseModel):
 class LoginResponse(BaseModel):
     user: UserPublic
     csrf_token: str
+
+
+# ===== Admin 페이지 =====
+
+class AdminStats(BaseModel):
+    total_users: int
+    active_users: int
+    total_teams: int
+    signups_last_7_days: int
+
+
+class UserSummary(BaseModel):
+    id: int
+    email: str
+    display_name: str
+    role: UserRole
+    team_id: int | None = None
+    team_name: str | None = None
+    is_active: bool
+    created_at: str  # ISO8601 UTC
+
+
+class UserUpdate(BaseModel):
+    # 보낸 필드만 수정. team_id는 명시적 null 허용(팀 해제 의미) → 별도 처리 필요해 raw dict 활용.
+    role: UserRole | None = None
+    team_id: int | None = None
+    is_active: bool | None = None
+    display_name: str | None = None
+
+
+class TeamSummary(BaseModel):
+    id: int
+    name: str
+    manager_id: int | None = None
+    manager_name: str | None = None
+    member_count: int
+    created_at: str
+
+
+class TeamCreate(BaseModel):
+    name: str
+    manager_id: int | None = None
+
+
+class TeamUpdate(BaseModel):
+    name: str | None = None
+    manager_id: int | None = None
