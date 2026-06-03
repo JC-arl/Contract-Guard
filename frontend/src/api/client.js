@@ -88,4 +88,15 @@ export async function updateClauseOverride(analysisId, clauseIndex, text) {
   return response.data;
 }
 
+// 변호사 피드백을 시스템 룰로 등록 (다음 분석부터 자동 적용)
+// raw: [조건][판단][근거][일반화] 형식의 자유 텍스트.
+// 응답: { entry, rule_registered: boolean, parse_warnings: string[] }
+export async function submitClauseFeedback(analysisId, clauseIndex, raw) {
+  const response = await api.post(
+    `/api/analyses/${encodeURIComponent(analysisId)}/clauses/${clauseIndex}/feedback`,
+    { raw },
+  );
+  return response.data;
+}
+
 export default api;

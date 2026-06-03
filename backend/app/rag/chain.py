@@ -582,6 +582,163 @@ def _rule_high_result(clause: Clause, risk_type: str, reason: str, quote: str = 
 
 
 # ============================================================================
+# 변호사 검증 룰 (verified_rules) — 최우선 분류기
+# ----------------------------------------------------------------------------
+# 변호사가 권고안 편집 시 함께 등록한 피드백([조건][판단][근거][일반화]=O)이
+# data/verified_rules/{contract_type}.jsonl에 누적된다. 분석 시 가장 먼저 적용
+# 되며, 매칭 시 LLM·KB 분류를 우회하고 변호사 판단을 그대로 사용한다.
+#
+# 매칭 조건 (둘 다 충족):
+#   1. parsed.condition_keywords가 모두 본 조항 본문에 등장 (AND)
+#   2. clause_text bigram 자카드 ≥ 0.5 (의미적 근접성)
+#
+# 캐시: 파일 mtime 기반 invalidation으로 신규 피드백 즉시 반영.
+# ============================================================================
+
+_VERIFIED_RULES_DIR = Path(DATA_DIR) / "verified_rules"
+_VERIFIED_RULES_CACHE: dict[str, tuple[float, list[dict]]] = {}
+_VERIFIED_BIGRAM_THRESHOLD = 0.5
+
+
+def _load_verified_rules(contract_type: str) -> list[dict]:
+    """jsonl에서 is_rule=True 항목만 로드. mtime 기반 캐시."""
+    path = _VERIFIED_RULES_DIR / f"{contract_type}.jsonl"
+    if not path.exists():
+        return []
+    try:
+        mtime = path.stat().st_mtime
+    except OSError:
+        return []
+
+    cached = _VERIFIED_RULES_CACHE.get(contract_type)
+    if cached and cached[0] == mtime:
+        return cached[1]
+
+    rules: list[dict] = []
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            for line in f:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    entry = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if entry.get("is_rule") and entry.get("parsed"):
+                    rules.append(entry)
+    except OSError as e:
+        logger.warning(f"verified_rules 로드 실패: {e}")
+        return []
+
+    _VERIFIED_RULES_CACHE[contract_type] = (mtime, rules)
+    return rules
+
+
+def _extract_quote_for_verified(body: str, keywords: list[str]) -> str:
+    """본문에서 키워드가 가장 밀집된 문장을 quote로 추출 (형광펜용)."""
+    if not keywords or not body:
+        return ""
+    sentences = re.split(r"[.。\n]", body)
+    best, best_score = "", 0
+    for sent in sentences:
+        s = sent.strip()
+        if len(s) < 10:
+            continue
+        score = sum(1 for kw in keywords if kw in s)
+        if score > best_score:
+            best_score = score
+            best = s
+    return best[:120] if best else ""
+
+
+def _verified_rule_result(clause: Clause, rule: dict, similarity: float) -> dict:
+    """변호사 검증 룰 매칭 결과 dict 생성. rule_high/rule_safe와 호환되는 형식."""
+    parsed = rule.get("parsed") or {}
+    judgment = (parsed.get("judgment") or "medium").lower()
+    reason = parsed.get("reason") or ""
+    lawyer_name = rule.get("lawyer_name") or "변호사"
+    registered_at = (rule.get("registered_at") or "")[:10]
+
+    explanation = (
+        f"본 조항은 변호사({lawyer_name}, {registered_at})가 등록한 검증 룰과 "
+        f"매칭되었습니다. 법적 근거: {reason} (유사도 {similarity:.0%})"
+    )
+
+    if judgment == "safe":
+        return {
+            "clause_index": clause.index,
+            "risk_level": "safe",
+            "confidence": 0.95,
+            "risks": [],
+            "explanation": explanation,
+            "_status": "verified_rule",
+        }
+
+    keywords = parsed.get("condition_keywords") or []
+    quote = _extract_quote_for_verified(clause.content, keywords)
+    suggestion_map = {
+        "high": "변호사 검증 사례에 부합 — 해당 조항 삭제 또는 재협상 권장",
+        "medium": "변호사 검증 사례에 부합 — 협상 또는 단서 조항 추가 권장",
+        "low": "변호사 검증 사례에 부합 — 변호사 직접 검토 권장",
+    }
+    return {
+        "clause_index": clause.index,
+        "risk_level": judgment,
+        "confidence": 0.95,
+        "risks": [{
+            "risk_type": f"verified_{judgment}",
+            "description": reason,
+            "suggestion": suggestion_map.get(judgment, "변호사 검토 권장"),
+            "quote": quote,
+        }],
+        "explanation": explanation,
+        "_status": "verified_rule",
+    }
+
+
+def _check_verified_rules(clause: Clause, contract_type: str) -> dict | None:
+    """변호사 검증 룰 매칭. 첫 매칭 룰의 판정을 그대로 반환.
+
+    최근 등록 우선 (jsonl append 순서를 reverse). 매칭 없으면 None.
+    """
+    rules = _load_verified_rules(contract_type)
+    if not rules:
+        return None
+
+    body = clause.content
+    body_compact = re.sub(r"\s+", "", body)
+
+    for rule in reversed(rules):
+        parsed = rule.get("parsed") or {}
+        keywords = parsed.get("condition_keywords") or []
+        rule_clause = rule.get("clause_text") or ""
+
+        # 1. 키워드 AND 매칭 (없으면 너무 광범위 — 스킵)
+        if not keywords:
+            continue
+        if not all(kw in body for kw in keywords):
+            continue
+
+        # 2. bigram 유사도 ≥ 임계
+        if rule_clause:
+            sim = _bigram_jaccard(body_compact, re.sub(r"\s+", "", rule_clause))
+            if sim < _VERIFIED_BIGRAM_THRESHOLD:
+                continue
+        else:
+            sim = 0.0  # 룰에 원본 조항이 없으면 키워드 매칭만으로 채택
+
+        logger.info(
+            f"조항 {clause.index} verified_rule 매칭: "
+            f"judgment={parsed.get('judgment')} sim={sim:.2f} "
+            f"keywords={keywords}"
+        )
+        return _verified_rule_result(clause, rule, sim)
+
+    return None
+
+
+# ============================================================================
 # KB 기반 데이터 우선 분류기 (Data-driven judgment)
 # ----------------------------------------------------------------------------
 # 수동 룰 대신 RAG 검색 결과의 유사도로 위험·안전을 판정한다.
@@ -768,12 +925,13 @@ async def analyze_all_clauses(
 ) -> dict:
     """전체 조항을 조항별 개별 LLM 호출로 분석.
 
-    분류 단계 (KB 데이터 우선):
-      1. KB 유사도 분류 — RAG 검색 결과의 unfair_clause / law·safe_clause 유사도로 결정
-         · unfair_clause sim ≥ KB_HIGH_THRESHOLD → high (판단 근거: KB 사례)
+    분류 단계 (사람 검증 → 코드 룰 → KB → LLM):
+      0. 변호사 검증 룰 — verified_rules/{contract_type}.jsonl에 등록된 룰 매칭
+         · 사람이 직접 검증한 출처라 최우선. 매칭 시 즉시 결정 (LLM·KB 우회)
+      1. 수동 룰 매칭 — 코드에 정의된 정형 표현·명백 패턴
+      2. KB 유사도 분류 — RAG 검색의 law/safe_clause 매칭 (unfair high는 LLM 위임)
          · law/safe_clause sim ≥ KB_SAFE_THRESHOLD → safe (판단 근거: KB 정형 표현)
-         · 둘 다 임계 미만이면 회색지대 → LLM에 위임
-      2. 수동 룰 (safety net) — KB가 결정 못 한 회색지대에서만 적용
+         · 안전 신호 없으면 회색지대 → LLM에 위임
       3. LLM 호출 (회색지대) — 미세한 판단·추론 + RAG 근거 explanation 생성
       4. 사후 룰 교정 — LLM의 명백한 오판 보정
     """
@@ -785,10 +943,8 @@ async def analyze_all_clauses(
     all_parsed = []
     per_clause_refs: dict[int, list[dict]] = {}
 
-    # 1단계: 수동 룰 매칭 (정형 표현·명백 패턴 즉시 분류)
-    # 2단계: KB 유사도 분류 (룰이 못 잡은 회색지대 보완)
-    # 3단계: LLM 분석 (미세 판단·추론)
     llm_target_clauses: list[Clause] = []
+    verified_count = 0
     pre_safe_count = 0
     pre_high_count = 0
     kb_safe_count = 0
@@ -797,6 +953,13 @@ async def analyze_all_clauses(
         # 모든 조항에 대해 retrieval 수행 (KB 분류 + LLM 컨텍스트로 사용)
         refs = _retrieve_for_clause(clause, contract_type)
         per_clause_refs[clause.index] = refs
+
+        # 0단계: 변호사 검증 룰 (최우선 — 사람이 등록한 결정)
+        verified = _check_verified_rules(clause, contract_type)
+        if verified:
+            all_parsed.append(verified)
+            verified_count += 1
+            continue
 
         # 1단계: 수동 룰 매칭 (결정적·정형 표현 우선 — KB 가짜 매칭 차단)
         is_safe, reason = check_safe_rule(clause, contract_type)
@@ -834,7 +997,8 @@ async def analyze_all_clauses(
         llm_target_clauses.append(clause)
 
     logger.info(
-        f"분류 결과: 룰 safe {pre_safe_count} / 룰 high {pre_high_count} / "
+        f"분류 결과: 변호사 룰 {verified_count} / "
+        f"룰 safe {pre_safe_count} / 룰 high {pre_high_count} / "
         f"KB safe {kb_safe_count} / KB high {kb_high_count} / "
         f"LLM 분석 {len(llm_target_clauses)}개"
     )

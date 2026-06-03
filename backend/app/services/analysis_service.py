@@ -263,8 +263,8 @@ def _reclassify_by_evidence(
 
     SAFE 분기는 변경 없음 (rule_safe/kb_safe/evidence_filtered/missing/LLM safe).
     """
-    if analysis_status in ("rule_high", "rule_safe", "kb_high", "kb_safe",
-                            "missing", "evidence_filtered"):
+    if analysis_status in ("verified_rule", "rule_high", "rule_safe",
+                            "kb_high", "kb_safe", "missing", "evidence_filtered"):
         return risk_level, analysis_status
     if risk_level not in (RiskLevel.HIGH, RiskLevel.MEDIUM):
         return risk_level, analysis_status
@@ -362,7 +362,7 @@ def _build_clause_analyses(
             # LLM 비결정성으로 진짜 위험이 quote만 빠뜨릴 수 있어, 본문에서 위험 시그널을
             # 자동 추출하는 폴백으로 false-negative를 줄인다.
             # 룰/KB classifier 결과는 결정적 출처라 환각 검증 대상에서 제외한다.
-            TRUSTED_STATUSES = ("rule_high", "rule_safe", "kb_high", "kb_safe", "missing")
+            TRUSTED_STATUSES = ("verified_rule", "rule_high", "rule_safe", "kb_high", "kb_safe", "missing")
             llm_origin = analysis_status not in TRUSTED_STATUSES
             if llm_origin and risk_level in (RiskLevel.HIGH, RiskLevel.MEDIUM):
                 # 1차: quote가 비어있는 risk에 대해 본문에서 위험 시그널 자동 추출 시도

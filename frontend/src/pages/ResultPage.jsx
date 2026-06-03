@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import { useLocation, useNavigate, useParams } from "react-router-dom";
 import RiskBadge from "../components/RiskBadge";
 import RiskPieChart from "../components/RiskPieChart";
-import { buildExportUrl, fetchAnalysis, updateClauseOverride } from "../api/client";
+import { buildExportUrl, fetchAnalysis, submitClauseFeedback, updateClauseOverride } from "../api/client";
 
 const EXPORT_FORMATS = [
   { key: "docx", label: "DOCX", desc: "MS Word" },
@@ -1337,6 +1337,247 @@ function RewriteEditor({ analysisId, analysis, onUpdated }) {
   );
 }
 
+// 판단 옵션 — 라디오 버튼 4개. 색상은 RiskBadge 톤과 일치.
+const FEEDBACK_JUDGMENT_OPTIONS = [
+  { value: "safe", label: "안전", desc: "정상 조항" },
+  { value: "low", label: "검토 권장", desc: "회색지대" },
+  { value: "medium", label: "계약자 불리", desc: "불공정 의심" },
+  { value: "high", label: "법률 위반", desc: "명백 위반" },
+];
+
+// 4개 필드를 백엔드 파서가 인식하는 [라벨] 형식 문자열로 조립.
+// 백엔드 feedback_parser는 자유 텍스트 형식을 가정하므로 프론트에서 항상 4 블록을 채워 보낸다.
+function composeFeedbackRaw({ condition, judgment, reason, generalize }) {
+  return [
+    `[조건] ${condition.trim()}`,
+    `[판단] ${judgment}`,
+    `[근거] ${reason.trim()}`,
+    `[일반화] ${generalize ? "O" : "X"}`,
+  ].join("\n");
+}
+
+// 변호사 피드백을 시스템 룰로 등록하는 토글 + 모달.
+// 권고안 편집(user_override, 그 분석 한정)과 달리, 피드백은 모든 향후 분석에 적용된다.
+function FeedbackEditor({ analysisId, clauseIndex }) {
+  const [modalOpen, setModalOpen] = useState(false);
+  return (
+    <div className="feedback-editor">
+      <button
+        type="button"
+        className="rewrite-btn feedback-toggle-btn"
+        onClick={() => setModalOpen(true)}
+        title="이 조항 판단을 시스템 룰로 등록 (모든 향후 분석에 적용)"
+      >
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+          <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+        </svg>
+        피드백 작성 (시스템 룰로 등록)
+      </button>
+      {modalOpen && (
+        <FeedbackEditModal
+          analysisId={analysisId}
+          clauseIndex={clauseIndex}
+          onClose={() => setModalOpen(false)}
+        />
+      )}
+    </div>
+  );
+}
+
+function FeedbackEditModal({ analysisId, clauseIndex, onClose }) {
+  // 4개 필드를 분리해서 받음 — 변호사가 자유 텍스트 형식 외울 필요 없이 빈 칸만 채우면 됨.
+  const [condition, setCondition] = useState("");
+  const [judgment, setJudgment] = useState(""); // "" | "safe" | "low" | "medium" | "high"
+  const [reason, setReason] = useState("");
+  const [generalize, setGeneralize] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [result, setResult] = useState(null); // { rule_registered, parse_warnings }
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    const onKey = (e) => { if (e.key === "Escape" && !submitting) onClose(); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose, submitting]);
+
+  // 조건/판단/근거 3개는 필수. 일반화는 선택(체크 안 해도 보존은 됨, 룰 등록만 X).
+  const isValid =
+    condition.trim().length >= 4 &&
+    judgment !== "" &&
+    reason.trim().length >= 4;
+
+  const locked = submitting || !!result?.rule_registered;
+
+  async function handleSubmit() {
+    if (!isValid) {
+      setError("조건·판단·근거를 모두 입력해주세요. (조건/근거 4자 이상)");
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      const raw = composeFeedbackRaw({ condition, judgment, reason, generalize });
+      const data = await submitClauseFeedback(analysisId, clauseIndex, raw);
+      setResult({
+        rule_registered: !!data?.rule_registered,
+        parse_warnings: data?.parse_warnings || [],
+      });
+    } catch (err) {
+      const msg =
+        err.response?.data?.detail || err.message || "피드백 등록에 실패했습니다.";
+      setError(msg);
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  function handleOverlayClick() {
+    if (submitting) return;
+    onClose();
+  }
+
+  return (
+    <div className="ref-modal-overlay" onClick={handleOverlayClick}>
+      <div className="ref-modal feedback-edit-modal" onClick={(e) => e.stopPropagation()} role="dialog" aria-label="피드백 작성">
+        <div className="ref-modal-header">
+          <div className="rewrite-drawer-title">
+            <span className="rewrite-drawer-eyebrow">시스템 룰 등록</span>
+            <h3 className="rewrite-drawer-clause">제{clauseIndex}조 피드백</h3>
+          </div>
+          <button type="button" className="ref-modal-close" onClick={onClose} aria-label="닫기" disabled={submitting}>
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+              <line x1="18" y1="6" x2="6" y2="18" />
+              <line x1="6" y1="6" x2="18" y2="18" />
+            </svg>
+          </button>
+        </div>
+        <div className="ref-modal-body feedback-form-body">
+          <p className="feedback-guide-note">
+            아래 항목을 채우고 <strong>일반화</strong>를 체크하면 시스템 룰로 등록되어
+            다음 분석부터 자동 적용됩니다. 체크하지 않으면 이 건만 기록됩니다.
+          </p>
+
+          <div className="feedback-form-field">
+            <label className="feedback-form-label" htmlFor="fb-condition">
+              조건 <span className="feedback-form-required">*</span>
+              <span className="feedback-form-hint">어떤 상황에 이 판단이 적용되는지</span>
+            </label>
+            <textarea
+              id="fb-condition"
+              className="feedback-form-input"
+              rows={3}
+              value={condition}
+              onChange={(e) => setCondition(e.target.value)}
+              placeholder="예: 주택임대차 + 차임연체 2기 미만 명시"
+              disabled={locked}
+              autoFocus
+            />
+          </div>
+
+          <div className="feedback-form-field">
+            <label className="feedback-form-label">
+              판단 <span className="feedback-form-required">*</span>
+              <span className="feedback-form-hint">변호사 검토 결과 위험도</span>
+            </label>
+            <div className="feedback-judgment-options" role="radiogroup">
+              {FEEDBACK_JUDGMENT_OPTIONS.map((opt) => {
+                const selected = judgment === opt.value;
+                return (
+                  <label
+                    key={opt.value}
+                    className={`feedback-judgment-option feedback-judgment-${opt.value}${selected ? " is-selected" : ""}`}
+                  >
+                    <input
+                      type="radio"
+                      name="judgment"
+                      value={opt.value}
+                      checked={selected}
+                      onChange={() => setJudgment(opt.value)}
+                      disabled={locked}
+                    />
+                    <span className="feedback-judgment-label">{opt.label}</span>
+                    <span className="feedback-judgment-desc">{opt.desc}</span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="feedback-form-field">
+            <label className="feedback-form-label" htmlFor="fb-reason">
+              근거 <span className="feedback-form-required">*</span>
+              <span className="feedback-form-hint">법령·판례·실무 이유</span>
+            </label>
+            <textarea
+              id="fb-reason"
+              className="feedback-form-input"
+              rows={3}
+              value={reason}
+              onChange={(e) => setReason(e.target.value)}
+              placeholder="예: 주택임대차보호법 제6조의2 — 2기 연체부터 해지 가능"
+              disabled={locked}
+            />
+          </div>
+
+          <label className="feedback-generalize-row">
+            <input
+              type="checkbox"
+              checked={generalize}
+              onChange={(e) => setGeneralize(e.target.checked)}
+              disabled={locked}
+            />
+            <div className="feedback-generalize-text">
+              <span className="feedback-generalize-label">
+                이 패턴을 모든 향후 분석에 자동 적용 (일반화)
+              </span>
+              <span className="feedback-generalize-desc">
+                체크하지 않으면 이 건만 보존되고 시스템 룰로는 등록되지 않습니다.
+              </span>
+            </div>
+          </label>
+
+          {result && (
+            <section className="feedback-result">
+              {result.rule_registered ? (
+                <p className="feedback-result-success">
+                  ✓ 시스템 룰로 등록되었습니다. 다음 분석부터 자동 적용됩니다.
+                </p>
+              ) : (
+                <p className="feedback-result-partial">
+                  피드백이 저장되었습니다. (일반화 미체크 — 시스템 룰로는 등록되지 않음)
+                </p>
+              )}
+              {result.parse_warnings.length > 0 && (
+                <ul className="feedback-result-warnings">
+                  {result.parse_warnings.map((w, i) => (
+                    <li key={i}>⚠ {w}</li>
+                  ))}
+                </ul>
+              )}
+            </section>
+          )}
+          {error && <p className="rewrite-drawer-error">{error}</p>}
+        </div>
+        <footer className="rewrite-edit-modal-footer">
+          <button type="button" className="rewrite-btn" onClick={onClose} disabled={submitting}>
+            {result ? "닫기" : "취소"}
+          </button>
+          {!result?.rule_registered && (
+            <button
+              type="button"
+              className="rewrite-btn rewrite-btn-primary"
+              onClick={handleSubmit}
+              disabled={submitting || !isValid}
+            >
+              {submitting ? "등록 중..." : "등록"}
+            </button>
+          )}
+        </footer>
+      </div>
+    </div>
+  );
+}
+
 function ReferencePanel({ analysisId, analysis, onAnalysisUpdated }) {
   if (!analysis) {
     return (
@@ -1402,6 +1643,27 @@ function ReferencePanel({ analysisId, analysis, onAnalysisUpdated }) {
               analysisId={analysisId}
               analysis={analysis}
               onUpdated={onAnalysisUpdated}
+            />
+          </section>
+        )}
+
+        {/* 피드백(시스템 룰 등록)은 safe를 제외한 모든 조항에 노출 —
+            low(검토 권장) 조항을 변호사가 safe로 내리는 피드백도 가능해야 한다. */}
+        {analysis.risk_level !== "safe" && (
+          <section className="ref-section">
+            <h3 className="ref-section-label ref-label-rewrite">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
+              </svg>
+              변호사 피드백
+            </h3>
+            <p className="feedback-section-note">
+              이 조항의 판단이 부적절하다면 올바른 판단을 시스템 룰로 등록할 수 있습니다.
+              일반화를 체크하면 다음 분석부터 자동 적용됩니다.
+            </p>
+            <FeedbackEditor
+              analysisId={analysisId}
+              clauseIndex={analysis.clause_index}
             />
           </section>
         )}

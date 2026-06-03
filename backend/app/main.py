@@ -3,7 +3,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from backend.app.api import health, documents, analyses, kb, chat, auth
+from backend.app.api import health, documents, analyses, kb, chat, auth, feedback
 from backend.app.db import init_db
 
 
@@ -29,3 +29,4 @@ app.include_router(documents.router, prefix="/api")
 app.include_router(analyses.router, prefix="/api")
 app.include_router(kb.router, prefix="/api")
 app.include_router(chat.router, prefix="/api")
+app.include_router(feedback.router, prefix="/api")
