@@ -31,9 +31,9 @@ export default function UserMenu() {
         <span className="user-menu-name">{currentUser.display_name || currentUser.email}</span>
         <span className="user-menu-role">{ROLE_LABELS[currentUser.role] || currentUser.role}</span>
       </div>
-      {currentUser.role === "admin" && (
+      {(currentUser.role === "admin" || currentUser.role === "manager") && (
         <button type="button" className="user-menu-admin" onClick={() => navigate("/admin")}>
-          관리자
+          관리
         </button>
       )}
       <button type="button" className="user-menu-logout" onClick={handleLogout}>

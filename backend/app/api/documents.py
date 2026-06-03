@@ -1,7 +1,13 @@
 import uuid
 from pathlib import Path
+
 from fastapi import APIRouter, UploadFile, File, HTTPException, Depends
+from sqlalchemy.orm import Session as DBSession
+
 from backend.app.auth.dependencies import get_current_user, require_csrf
+from backend.app.config import settings
+from backend.app.db.models import AnalysisMeta, User
+from backend.app.db.session import get_db
 from backend.app.models.analysis import AnalysisResponse
 from backend.app.services import document_service, clause_service, analysis_service
 from backend.app.utils.file_utils import save_upload
@@ -12,10 +18,12 @@ router = APIRouter()
 @router.post(
     "/documents/upload",
     response_model=AnalysisResponse,
-    dependencies=[Depends(get_current_user), Depends(require_csrf)],
+    dependencies=[Depends(require_csrf)],
 )
 async def upload_and_analyze(
     file: UploadFile = File(...),
+    current_user: User = Depends(get_current_user),
+    db: DBSession = Depends(get_db),
 ):
     if not file.filename:
         raise HTTPException(status_code=400, detail="파일명이 없습니다.")
@@ -56,5 +64,25 @@ async def upload_and_analyze(
         parties=parties,
         sub_type=sub_type,
     )
+
+    # 분석 본문(JSON)은 analysis_service가 이미 저장. 여기선 권한 판정용 메타만 DB에 기록.
+    meta = AnalysisMeta(
+        id=result.id,
+        document_id=result.document_id,
+        filename=result.filename,
+        contract_type=result.contract_type,
+        total_clauses=result.total_clauses,
+        risky_clauses=result.risky_clauses,
+        owner_id=current_user.id,
+        team_id=current_user.team_id,
+    )
+    try:
+        db.add(meta)
+        db.commit()
+    except Exception:
+        # 메타 INSERT 실패 → 본문 JSON만 남는 고아 파일 방지
+        db.rollback()
+        (Path(settings.results_dir) / f"{result.id}.json").unlink(missing_ok=True)
+        raise
 
     return AnalysisResponse(status="completed", result=result)

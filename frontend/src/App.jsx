@@ -4,6 +4,7 @@ import UploadPage from "./pages/UploadPage";
 import ResultPage from "./pages/ResultPage";
 import ChatPage from "./pages/ChatPage";
 import LoginPage from "./pages/LoginPage";
+import AdminPage from "./pages/AdminPage";
 import Sidebar from "./components/Sidebar";
 import UserMenu from "./components/UserMenu";
 import ProtectedRoute from "./components/ProtectedRoute";
@@ -73,6 +74,14 @@ export default function App() {
       <AuthProvider>
         <Routes>
           <Route path="/" element={<LoginPage />} />
+          <Route
+            path="/admin"
+            element={
+              <ProtectedRoute roles={["admin", "manager"]}>
+                <AdminPage />
+              </ProtectedRoute>
+            }
+          />
           <Route
             element={
               <ProtectedRoute>

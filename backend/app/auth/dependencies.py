@@ -1,9 +1,15 @@
+import re
+from typing import Literal
+
 from fastapi import Depends, HTTPException, Request
 from sqlalchemy.orm import Session as DBSession
 
 from backend.app.auth import security
-from backend.app.db.models import Session as SessionModel, User, UserRole
+from backend.app.db.models import AnalysisMeta, Session as SessionModel, User, UserRole
 from backend.app.db.session import get_db
+
+# UUID4 형식만 허용 — 잘못된 ID가 DB/파일시스템으로 가지 않게 한 곳에서 필터
+_ANALYSIS_ID_RE = re.compile(r"^[0-9a-fA-F-]{36}$")
 
 
 def get_current_session(request: Request, db: DBSession = Depends(get_db)) -> SessionModel:
@@ -49,5 +55,49 @@ def require_role(*roles: UserRole):
         if user.role not in roles:
             raise HTTPException(status_code=403, detail="권한이 없습니다.")
         return user
+
+    return _checker
+
+
+def require_analysis_access(action: Literal["view", "modify", "delete"]):
+    """분석 단위 권한 검사 의존성 팩토리.
+
+    권한 매트릭스 (Admin은 분석 데이터에 접근 불가 — 변호사·의뢰인 비밀유지):
+      view  : 소유자 또는 같은 팀의 Manager
+      modify: 소유자만
+      delete: 소유자만
+
+    통과하면 AnalysisMeta 객체를 반환 → 라우터에서 meta.id로 본문 JSON 로드.
+    조회 권한 없음은 404로 응답해 '존재 사실'도 숨긴다.
+    """
+
+    def _checker(
+        analysis_id: str,
+        user: User = Depends(get_current_user),
+        db: DBSession = Depends(get_db),
+    ) -> AnalysisMeta:
+        if not _ANALYSIS_ID_RE.match(analysis_id):
+            raise HTTPException(status_code=400, detail="유효하지 않은 분석 ID입니다.")
+
+        meta = db.get(AnalysisMeta, analysis_id)
+        if meta is None:
+            raise HTTPException(status_code=404, detail="분석 결과를 찾을 수 없습니다.")
+
+        is_owner = meta.owner_id == user.id
+        is_team_manager = (
+            user.role == UserRole.manager
+            and user.team_id is not None
+            and meta.team_id == user.team_id
+        )
+
+        if action == "view":
+            if not (is_owner or is_team_manager):
+                # 정보 노출 방지를 위해 403 대신 404
+                raise HTTPException(status_code=404, detail="분석 결과를 찾을 수 없습니다.")
+        else:  # modify, delete — 소유자만
+            if not is_owner:
+                raise HTTPException(status_code=403, detail="권한이 없습니다.")
+
+        return meta
 
     return _checker

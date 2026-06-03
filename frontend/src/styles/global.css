@@ -311,6 +311,16 @@ button:active,
   color: var(--text-muted);
 }
 
+/* 팀원이 만든 분석의 작성자 명 표시 — 골드로 살짝 강조 */
+.sidebar-owner {
+  color: var(--gold);
+  font-weight: 600;
+  max-width: 80px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .sidebar-item__delete {
   opacity: 0;
   background: transparent;
