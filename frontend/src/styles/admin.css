@@ -532,10 +532,175 @@ span.adm-toggle {
   font-size: 13px;
 }
 
+/* ===== 성능 지표 패널 (데모용 더미 데이터) ===== */
+.perf-demo-badge {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  background: var(--bg-alt);
+  border: 1px dashed var(--border);
+  padding: 3px 9px;
+  border-radius: var(--radius-pill);
+}
+
+.perf-panel-sub {
+  font-size: 13px;
+  color: var(--text-muted);
+  margin: -6px 0 18px;
+}
+
+.perf-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+
+.perf-chart-card {
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 14px 16px;
+  background: var(--white);
+}
+
+.perf-chart-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.perf-chart-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-sub);
+  margin: 0;
+}
+
+/* ?  도움말 아이콘 + 호버 툴팁 */
+.perf-help {
+  position: relative;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+  cursor: help;
+  flex-shrink: 0;
+  user-select: none;
+}
+.perf-help:hover,
+.perf-help:focus-visible {
+  background: var(--bg-alt);
+  color: var(--text-sub);
+  outline: none;
+}
+
+.perf-help-tip {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 240px;
+  padding: 10px 12px;
+  background: var(--text, #1a1a1a);
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 400;
+  line-height: 1.55;
+  text-align: left;
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-lg);
+  opacity: 0;
+  visibility: hidden;
+  transform: translateY(-4px);
+  transition: opacity 0.15s, transform 0.15s, visibility 0.15s;
+  z-index: 20;
+  pointer-events: none;
+}
+.perf-help:hover .perf-help-tip,
+.perf-help:focus-visible .perf-help-tip {
+  opacity: 1;
+  visibility: visible;
+  transform: translateY(0);
+}
+
+/* 차트 하단 설명 (성능 지표 정의 등) */
+.perf-chart-desc {
+  margin-top: 12px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-light, rgba(0, 0, 0, 0.07));
+}
+.perf-metric-defs {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.perf-metric-defs > div {
+  display: flex;
+  gap: 8px;
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+.perf-metric-defs dt {
+  flex-shrink: 0;
+  min-width: 44px;
+  font-weight: 700;
+  color: var(--text-sub);
+}
+.perf-metric-defs dd {
+  margin: 0;
+  color: var(--text-muted);
+}
+
+/* ── SVG 막대 차트 ── */
+/* 차트 최대 크기를 px로 제한 — 카드가 넓어도 그래프가 과도하게 커지지 않도록 */
+.bar-chart { display: flex; flex-direction: column; align-items: center; gap: 8px; }
+.bar-svg { display: block; width: 100%; max-width: 440px; height: auto; }
+.bar-caption { align-self: stretch; }
+
+.bar-grid { stroke: var(--border-light, rgba(0, 0, 0, 0.07)); stroke-width: 1; }
+.bar-axis-label { font-size: 9px; fill: var(--text-muted); }
+
+.bar-value {
+  font-size: 10px;
+  font-weight: 700;
+  fill: var(--text-sub);
+  font-variant-numeric: tabular-nums;
+  opacity: 0;
+  animation: bar-fade 0.4s ease-out var(--bar-delay, 0s) forwards;
+  animation-delay: calc(var(--bar-delay, 0s) + 0.5s);
+}
+
+/* 막대: 아래에서 위로 자라남 */
+.bar-rect {
+  transform-box: fill-box;
+  transform-origin: bottom;
+  transform: scaleY(0);
+  animation: bar-grow 0.6s cubic-bezier(0.65, 0, 0.35, 1) var(--bar-delay, 0s) forwards;
+}
+@keyframes bar-grow { to { transform: scaleY(1); } }
+@keyframes bar-fade {
+  from { opacity: 0; transform: translateY(2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.bar-caption {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin: 0;
+}
+
 /* ===== 반응형 ===== */
 @media (max-width: 1100px) {
   .adm-stats-grid { grid-template-columns: repeat(2, 1fr); }
   .adm-grid-2 { grid-template-columns: 1fr; }
+  .perf-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 720px) {
