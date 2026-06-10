@@ -57,6 +57,8 @@ class AdminStats(BaseModel):
     active_users: int
     total_teams: int
     signups_last_7_days: int
+    pending_feedback: int = 0  # 승인 대기 피드백 수 (manager=팀, admin=전체)
+    approved_rules: int = 0  # 승인된 활성 룰 수
 
 
 class UserSummary(BaseModel):

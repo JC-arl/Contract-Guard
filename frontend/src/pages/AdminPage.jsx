@@ -2,11 +2,17 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 import {
+  approveFeedback,
   createTeam,
+  deactivateFeedback,
   deleteTeam,
+  editFeedback,
   fetchAdminStats,
+  listActiveRules,
+  listPendingFeedback,
   listTeams,
   listUsers,
+  rejectFeedback,
   updateTeam,
   updateUser,
 } from "../api/admin";
@@ -278,6 +284,209 @@ function AnalysisHistoryPanel({ analyses, loading, currentUser, onOpen }) {
 }
 
 
+// ─── 피드백 승인 (팀장 전용) ──────────────────
+const FB_JUDGMENT_LABELS = {
+  safe: "안전",
+  low: "검토 권장",
+  medium: "계약자 불리",
+  high: "법률 위반",
+};
+const FB_JUDGMENT_OPTIONS = [
+  { value: "safe", label: "안전" },
+  { value: "low", label: "검토 권장" },
+  { value: "medium", label: "계약자 불리" },
+  { value: "high", label: "법률 위반" },
+];
+
+// 4개 필드를 백엔드 파서가 인식하는 [라벨] 형식으로 조립 (ResultPage와 동일 규칙).
+function composeFeedbackRaw({ condition, judgment, reason, generalize }) {
+  return [
+    `[조건] ${condition.trim()}`,
+    `[판단] ${judgment}`,
+    `[근거] ${reason.trim()}`,
+    `[일반화] ${generalize ? "O" : "X"}`,
+  ].join("\n");
+}
+
+// 승인 대기 피드백 인라인 수정 폼
+function FeedbackEditForm({ item, busy, onSave, onCancel }) {
+  const p = item.parsed || {};
+  const [condition, setCondition] = useState(p.condition || "");
+  const [judgment, setJudgment] = useState((p.judgment || "").toLowerCase());
+  const [reason, setReason] = useState(p.reason || "");
+  const [generalize, setGeneralize] = useState(p.generalize === true);
+
+  const isValid =
+    condition.trim().length >= 4 && judgment !== "" && reason.trim().length >= 4;
+
+  return (
+    <div className="adm-feedback-edit">
+      <label className="adm-feedback-edit-field">
+        <span>조건</span>
+        <textarea
+          className="adm-input"
+          rows={2}
+          value={condition}
+          onChange={(e) => setCondition(e.target.value)}
+          disabled={busy}
+        />
+      </label>
+      <div className="adm-feedback-edit-field">
+        <span>판단</span>
+        <div className="adm-feedback-judg-radios">
+          {FB_JUDGMENT_OPTIONS.map((opt) => (
+            <label key={opt.value} className="adm-feedback-judg-radio">
+              <input
+                type="radio"
+                name={`judg-${item.id}`}
+                value={opt.value}
+                checked={judgment === opt.value}
+                onChange={() => setJudgment(opt.value)}
+                disabled={busy}
+              />
+              {opt.label}
+            </label>
+          ))}
+        </div>
+      </div>
+      <label className="adm-feedback-edit-field">
+        <span>근거</span>
+        <textarea
+          className="adm-input"
+          rows={2}
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          disabled={busy}
+        />
+      </label>
+      <label className="adm-feedback-generalize">
+        <input
+          type="checkbox"
+          checked={generalize}
+          onChange={(e) => setGeneralize(e.target.checked)}
+          disabled={busy}
+        />
+        일반화 (승인 시 향후 분석에 자동 적용)
+      </label>
+      <div className="adm-feedback-actions">
+        <button
+          type="button"
+          className="adm-btn-primary"
+          disabled={busy || !isValid}
+          onClick={() => onSave(composeFeedbackRaw({ condition, judgment, reason, generalize }))}
+        >
+          {busy ? "저장 중..." : "저장"}
+        </button>
+        <button type="button" className="adm-btn-secondary" disabled={busy} onClick={onCancel}>
+          취소
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function FeedbackApprovalPanel({ mode, items, loading, busyId, editingId, onApprove, onReject, onDeactivate, onEdit, onEditCancel, onEditSave }) {
+  const isActive = mode === "active";
+  return (
+    <section className="adm-panel">
+      <div className="adm-panel-head">
+        <h2 className="adm-panel-title">{isActive ? "승인된 활성 룰" : "피드백 승인 대기"}</h2>
+        <span className="adm-panel-count">{items.length}건</span>
+      </div>
+      <div className="adm-feedback-list">
+        {loading && <div className="adm-empty">불러오는 중...</div>}
+        {!loading && items.length === 0 && (
+          <div className="adm-empty">{isActive ? "승인된 활성 룰이 없습니다." : "승인 대기 중인 피드백이 없습니다."}</div>
+        )}
+        {!loading && items.map((it) => {
+          const p = it.parsed || {};
+          const judgment = (p.judgment || "").toLowerCase();
+          const busy = busyId === it.id;
+          const editing = editingId === it.id;
+          return (
+            <article key={it.id} className="adm-feedback-card">
+              <div className="adm-feedback-meta">
+                <span className="adm-feedback-author">{it.lawyer_name || "변호사"}</span>
+                <span className="adm-feedback-clause">
+                  {(CONTRACT_LABELS[it.contract_type] || it.contract_type || "기타")} · 제{it.clause_index}조
+                </span>
+                {it.is_rule
+                  ? <span className="adm-feedback-tag rule">일반화 룰</span>
+                  : <span className="adm-feedback-tag record">기록용</span>}
+                {judgment && (
+                  <span className={`adm-feedback-judgment fb-${judgment}`}>
+                    {FB_JUDGMENT_LABELS[judgment] || judgment}
+                  </span>
+                )}
+              </div>
+              {it.clause_text && (
+                <p className="adm-feedback-clausetext" title={it.clause_text}>{it.clause_text}</p>
+              )}
+              {editing ? (
+                <FeedbackEditForm
+                  item={it}
+                  busy={busy}
+                  onSave={(raw) => onEditSave(it.id, raw)}
+                  onCancel={onEditCancel}
+                />
+              ) : (
+                <>
+                  <dl className="adm-feedback-fields">
+                    {p.condition && (<><dt>조건</dt><dd>{p.condition}</dd></>)}
+                    {judgment && (<><dt>판단</dt><dd>{FB_JUDGMENT_LABELS[judgment] || judgment}</dd></>)}
+                    {p.reason && (<><dt>근거</dt><dd>{p.reason}</dd></>)}
+                    {!p.condition && !p.reason && !judgment && (<dd className="adm-feedback-raw">{it.raw}</dd>)}
+                  </dl>
+                  <div className="adm-feedback-actions">
+                    {!isActive && (
+                      <button
+                        type="button"
+                        className="adm-btn-primary"
+                        disabled={busy}
+                        onClick={() => onApprove(it.id)}
+                      >
+                        {busy ? "처리 중..." : "승인"}
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      className="adm-btn-secondary"
+                      disabled={busy}
+                      onClick={() => onEdit(it.id)}
+                    >
+                      수정
+                    </button>
+                    {isActive ? (
+                      <button
+                        type="button"
+                        className="adm-btn-danger"
+                        disabled={busy}
+                        onClick={() => onDeactivate(it.id)}
+                      >
+                        {busy ? "처리 중..." : "비활성화"}
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        className="adm-btn-danger"
+                        disabled={busy}
+                        onClick={() => onReject(it.id)}
+                      >
+                        반려
+                      </button>
+                    )}
+                  </div>
+                </>
+              )}
+            </article>
+          );
+        })}
+      </div>
+    </section>
+  );
+}
+
+
 // ─── 팀 리스트 ────────────────────────────────
 function TeamsPanel({ teams, users, onUpdate, onDelete, readOnly = false }) {
   return (
@@ -344,7 +553,7 @@ export default function AdminPage() {
   const isManager = currentUser?.role === "manager";
 
   const [active, setActive] = useState("dashboard");
-  const [stats, setStats] = useState({ total_users: 0, active_users: 0, total_teams: 0, signups_last_7_days: 0 });
+  const [stats, setStats] = useState({ total_users: 0, active_users: 0, total_teams: 0, signups_last_7_days: 0, pending_feedback: 0, approved_rules: 0 });
   const [users, setUsers] = useState([]);
   const [teams, setTeams] = useState([]);
   const [error, setError] = useState(null);
@@ -353,6 +562,15 @@ export default function AdminPage() {
   const [analyses, setAnalyses] = useState([]);
   const [analysesLoading, setAnalysesLoading] = useState(false);
 
+  // 피드백 승인 (매니저 전용 탭)
+  const [fbView, setFbView] = useState("pending"); // "pending" | "active"
+  const [pending, setPending] = useState([]);
+  const [pendingLoading, setPendingLoading] = useState(false);
+  const [activeRules, setActiveRules] = useState([]);
+  const [activeLoading, setActiveLoading] = useState(false);
+  const [reviewBusyId, setReviewBusyId] = useState(null);
+  const [editingId, setEditingId] = useState(null);
+
   const sidebarItems = useMemo(() => {
     const base = [
       { key: "dashboard", label: "대시보드", icon: HomeIcon },
@@ -360,6 +578,7 @@ export default function AdminPage() {
       { key: "teams", label: "팀 관리", icon: TeamIcon },
     ];
     if (isManager) {
+      base.push({ key: "feedback", label: "피드백 승인", icon: CheckIcon });
       base.push({ key: "history", label: "분석 이력", icon: HistoryIcon });
     }
     return base;
@@ -390,6 +609,78 @@ export default function AdminPage() {
       .catch(() => setAnalyses([]))
       .finally(() => setAnalysesLoading(false));
   }, [active]);
+
+  // 피드백 승인 탭 진입 시 목록 로드 (보고 있는 뷰만 로드)
+  const loadPending = useCallback(() => {
+    setPendingLoading(true);
+    listPendingFeedback()
+      .then((data) => setPending(Array.isArray(data) ? data : []))
+      .catch(() => setPending([]))
+      .finally(() => setPendingLoading(false));
+  }, []);
+
+  const loadActive = useCallback(() => {
+    setActiveLoading(true);
+    listActiveRules()
+      .then((data) => setActiveRules(Array.isArray(data) ? data : []))
+      .catch(() => setActiveRules([]))
+      .finally(() => setActiveLoading(false));
+  }, []);
+
+  useEffect(() => {
+    if (active !== "feedback") return;
+    setEditingId(null);
+    if (fbView === "active") loadActive();
+    else loadPending();
+  }, [active, fbView, loadActive, loadPending]);
+
+  const handleReview = async (id, action) => {
+    setReviewBusyId(id);
+    try {
+      await (action === "approve" ? approveFeedback(id) : rejectFeedback(id));
+      // 처리된 항목 즉시 제거 + 대시보드 카운트 갱신
+      setPending((prev) => prev.filter((it) => it.id !== id));
+      await refreshAll();
+    } catch (err) {
+      window.alert(err.response?.data?.detail || "처리에 실패했습니다.");
+    } finally {
+      setReviewBusyId(null);
+    }
+  };
+
+  const handleEditSave = async (id, raw) => {
+    setReviewBusyId(id);
+    try {
+      const updated = await editFeedback(id, raw);
+      setPending((prev) => prev.map((it) => (it.id === id ? updated : it)));
+      // 활성 룰 수정 시: 더 이상 룰이 아니면(일반화 해제) 목록에서 제거
+      setActiveRules((prev) =>
+        updated.is_rule
+          ? prev.map((it) => (it.id === id ? updated : it))
+          : prev.filter((it) => it.id !== id)
+      );
+      setEditingId(null);
+      await refreshAll();
+    } catch (err) {
+      window.alert(err.response?.data?.detail || "수정에 실패했습니다.");
+    } finally {
+      setReviewBusyId(null);
+    }
+  };
+
+  const handleDeactivate = async (id) => {
+    if (!window.confirm("이 활성 룰을 비활성화하시겠습니까? 이후 분석에 적용되지 않습니다.")) return;
+    setReviewBusyId(id);
+    try {
+      await deactivateFeedback(id);
+      setActiveRules((prev) => prev.filter((it) => it.id !== id));
+      await refreshAll();
+    } catch (err) {
+      window.alert(err.response?.data?.detail || "비활성화에 실패했습니다.");
+    } finally {
+      setReviewBusyId(null);
+    }
+  };
 
   const handleUserUpdate = async (id, changes) => {
     try {
@@ -429,6 +720,8 @@ export default function AdminPage() {
               ? (isAdmin ? "사용자 관리" : "팀원")
               : active === "teams"
               ? (isAdmin ? "팀 관리" : "팀 구성도")
+              : active === "feedback"
+              ? "피드백 승인"
               : active === "history"
               ? "분석 이력"
               : (isAdmin ? "시스템 관리자 대시보드" : "팀 구성도")}
@@ -438,6 +731,8 @@ export default function AdminPage() {
               ? (isAdmin ? "전체 사용자 목록과 역할·소속을 관리합니다" : "내 팀 구성원을 확인합니다")
               : active === "teams"
               ? (isAdmin ? "팀 생성·구성·팀장 지정을 관리합니다" : "조직 전체의 팀 구성을 확인합니다")
+              : active === "feedback"
+              ? "팀원이 제출한 피드백을 검토·승인합니다 (승인 시 분석에 자동 적용)"
               : active === "history"
               ? "팀원이 분석한 계약서 내역을 확인합니다"
               : (isAdmin ? "사용자 및 팀 운영 현황" : "내 팀과 조직 구성 현황을 확인합니다")}
@@ -450,6 +745,8 @@ export default function AdminPage() {
             <StatCard icon={ShieldIcon} label={isAdmin ? "활성 사용자" : "활성 팀원"} value={stats.active_users} />
             <StatCard icon={TeamIcon} label="전체 팀" value={stats.total_teams} />
             <StatCard icon={ClockIcon} label={isAdmin ? "최근 7일 신규 가입" : "최근 7일 신규 팀원"} value={stats.signups_last_7_days} />
+            <StatCard icon={CheckIcon} label={isAdmin ? "승인 대기 피드백" : "팀 승인 대기"} value={stats.pending_feedback} />
+            <StatCard icon={ShieldIcon} label="승인된 활성 룰" value={stats.approved_rules} />
           </div>
 
           {active === "dashboard" && (
@@ -486,6 +783,40 @@ export default function AdminPage() {
             </>
           )}
 
+          {active === "feedback" && (
+            <>
+              <div className="adm-seg-toggle">
+                <button
+                  type="button"
+                  className={`adm-seg-btn${fbView === "pending" ? " active" : ""}`}
+                  onClick={() => setFbView("pending")}
+                >
+                  승인 대기 ({stats.pending_feedback ?? 0})
+                </button>
+                <button
+                  type="button"
+                  className={`adm-seg-btn${fbView === "active" ? " active" : ""}`}
+                  onClick={() => setFbView("active")}
+                >
+                  활성 룰 ({stats.approved_rules ?? 0})
+                </button>
+              </div>
+              <FeedbackApprovalPanel
+                mode={fbView}
+                items={fbView === "active" ? activeRules : pending}
+                loading={fbView === "active" ? activeLoading : pendingLoading}
+                busyId={reviewBusyId}
+                editingId={editingId}
+                onApprove={(id) => handleReview(id, "approve")}
+                onReject={(id) => handleReview(id, "reject")}
+                onDeactivate={handleDeactivate}
+                onEdit={(id) => setEditingId(id)}
+                onEditCancel={() => setEditingId(null)}
+                onEditSave={handleEditSave}
+              />
+            </>
+          )}
+
           {active === "history" && (
             <AnalysisHistoryPanel
               analyses={analyses}
@@ -507,3 +838,4 @@ function TeamIcon() { return <svg width="16" height="16" viewBox="0 0 24 24" fil
 function ShieldIcon() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><polyline points="9 12 11 14 15 10"/></svg>; }
 function ClockIcon() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>; }
 function HistoryIcon() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M3 12a9 9 0 1 0 3-6.7"/><polyline points="3 4 3 10 9 10"/><polyline points="12 7 12 12 15 14"/></svg>; }
+function CheckIcon() { return <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 11l3 3L22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>; }

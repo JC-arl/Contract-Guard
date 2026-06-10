@@ -3,6 +3,7 @@ import { useLocation, useNavigate, useParams } from "react-router-dom";
 import RiskBadge from "../components/RiskBadge";
 import RiskPieChart from "../components/RiskPieChart";
 import { buildExportUrl, fetchAnalysis, submitClauseFeedback, updateClauseOverride } from "../api/client";
+import { useAuth } from "../context/AuthContext";
 
 const EXPORT_FORMATS = [
   { key: "docx", label: "DOCX", desc: "MS Word" },
@@ -1366,12 +1367,12 @@ function FeedbackEditor({ analysisId, clauseIndex }) {
         type="button"
         className="rewrite-btn feedback-toggle-btn"
         onClick={() => setModalOpen(true)}
-        title="이 조항 판단을 시스템 룰로 등록 (모든 향후 분석에 적용)"
+        title="이 조항 판단을 피드백으로 제출 (팀장 승인 후 향후 분석에 적용)"
       >
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
           <path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z" />
         </svg>
-        피드백 작성 (시스템 룰로 등록)
+        피드백 작성
       </button>
       {modalOpen && (
         <FeedbackEditModal
@@ -1391,8 +1392,11 @@ function FeedbackEditModal({ analysisId, clauseIndex, onClose }) {
   const [reason, setReason] = useState("");
   const [generalize, setGeneralize] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [result, setResult] = useState(null); // { rule_registered, parse_warnings }
+  const [result, setResult] = useState(null); // { rule_registered, status, parse_warnings }
   const [error, setError] = useState(null);
+  const { currentUser } = useAuth();
+  // 변호사 제출은 팀장 승인을 거친다. 팀장/관리자 제출은 즉시 적용.
+  const needsApproval = currentUser?.role === "lawyer";
 
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape" && !submitting) onClose(); };
@@ -1406,7 +1410,8 @@ function FeedbackEditModal({ analysisId, clauseIndex, onClose }) {
     judgment !== "" &&
     reason.trim().length >= 4;
 
-  const locked = submitting || !!result?.rule_registered;
+  // 제출이 완료되면(승인/대기 무관) 폼을 잠근다.
+  const locked = submitting || !!result;
 
   async function handleSubmit() {
     if (!isValid) {
@@ -1420,6 +1425,7 @@ function FeedbackEditModal({ analysisId, clauseIndex, onClose }) {
       const data = await submitClauseFeedback(analysisId, clauseIndex, raw);
       setResult({
         rule_registered: !!data?.rule_registered,
+        status: data?.status || "approved",
         parse_warnings: data?.parse_warnings || [],
       });
     } catch (err) {
@@ -1453,8 +1459,18 @@ function FeedbackEditModal({ analysisId, clauseIndex, onClose }) {
         </div>
         <div className="ref-modal-body feedback-form-body">
           <p className="feedback-guide-note">
-            아래 항목을 채우고 <strong>일반화</strong>를 체크하면 시스템 룰로 등록되어
-            다음 분석부터 자동 적용됩니다. 체크하지 않으면 이 건만 기록됩니다.
+            {needsApproval ? (
+              <>
+                아래 항목을 채우고 제출하면 <strong>팀장 승인 요청</strong>으로 전송됩니다.
+                <strong>일반화</strong>를 체크한 피드백은 승인 시 다음 분석부터 자동 적용되고,
+                체크하지 않으면 승인 후 기록으로 보존됩니다.
+              </>
+            ) : (
+              <>
+                아래 항목을 채우고 <strong>일반화</strong>를 체크하면 시스템 룰로 등록되어
+                다음 분석부터 자동 적용됩니다. 체크하지 않으면 이 건만 기록됩니다.
+              </>
+            )}
           </p>
 
           <div className="feedback-form-field">
@@ -1538,7 +1554,14 @@ function FeedbackEditModal({ analysisId, clauseIndex, onClose }) {
 
           {result && (
             <section className="feedback-result">
-              {result.rule_registered ? (
+              {result.status === "pending" ? (
+                <p className="feedback-result-success">
+                  ✓ 팀장 승인 요청이 전송되었습니다.{" "}
+                  {result.rule_registered
+                    ? "승인되면 다음 분석부터 자동 적용됩니다."
+                    : "승인되면 기록으로 보존됩니다. (일반화 미체크 — 룰로는 등록되지 않음)"}
+                </p>
+              ) : result.rule_registered ? (
                 <p className="feedback-result-success">
                   ✓ 시스템 룰로 등록되었습니다. 다음 분석부터 자동 적용됩니다.
                 </p>
@@ -1562,14 +1585,14 @@ function FeedbackEditModal({ analysisId, clauseIndex, onClose }) {
           <button type="button" className="rewrite-btn" onClick={onClose} disabled={submitting}>
             {result ? "닫기" : "취소"}
           </button>
-          {!result?.rule_registered && (
+          {!result && (
             <button
               type="button"
               className="rewrite-btn rewrite-btn-primary"
               onClick={handleSubmit}
               disabled={submitting || !isValid}
             >
-              {submitting ? "등록 중..." : "등록"}
+              {submitting ? "제출 중..." : "제출"}
             </button>
           )}
         </footer>

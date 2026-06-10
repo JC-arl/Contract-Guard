@@ -16,6 +16,10 @@ from backend.app.models.auth import (
     UserSummary,
     UserUpdate,
 )
+from backend.app.models.feedback import FeedbackPayload, PendingFeedbackItem
+from backend.app.rag.chain import invalidate_verified_rules_cache
+from backend.app.services import feedback_store
+from backend.app.services.feedback_parser import is_complete_rule, parse_feedback
 
 logger = logging.getLogger(__name__)
 
@@ -39,6 +43,13 @@ def _current_user(me: User = Depends(require_role(UserRole.admin, UserRole.manag
     return me
 
 
+def _manager_only(me: User = Depends(_current_user)) -> User:
+    """피드백 승인은 팀장 전용 — admin은 분석/피드백 내용 접근 불가(비밀유지)."""
+    if me.role != UserRole.manager:
+        raise HTTPException(status_code=403, detail="팀장만 접근 가능합니다.")
+    return me
+
+
 # ===== 대시보드 통계 =====
 
 @router.get("/stats", response_model=AdminStats)
@@ -47,6 +58,9 @@ def get_stats(me: User = Depends(_current_user), db: DBSession = Depends(get_db)
     week_ago = datetime.utcnow() - timedelta(days=7)
 
     total_teams = db.query(func.count(Team.id)).scalar() or 0  # 모든 role이 전체 팀 수 확인 가능
+
+    # 피드백 집계 스코프: admin=전체, manager=자기 팀
+    fb_scope = None if me.role == UserRole.admin else me.team_id
 
     if me.role == UserRole.admin:
         total_users = db.query(func.count(User.id)).scalar() or 0
@@ -57,6 +71,7 @@ def get_stats(me: User = Depends(_current_user), db: DBSession = Depends(get_db)
         if me.team_id is None:
             return AdminStats(
                 total_users=0, active_users=0, total_teams=total_teams, signups_last_7_days=0,
+                pending_feedback=0, approved_rules=0,
             )
         team_users = db.query(User).filter(User.team_id == me.team_id)
         total_users = team_users.count()
@@ -68,7 +83,147 @@ def get_stats(me: User = Depends(_current_user), db: DBSession = Depends(get_db)
         active_users=active_users,
         total_teams=total_teams,
         signups_last_7_days=signups_7d,
+        pending_feedback=feedback_store.count_pending(fb_scope),
+        approved_rules=feedback_store.count_active_rules(fb_scope),
     )
+
+
+# ===== 피드백 승인 (팀장 전용) =====
+
+def _pending_to_item(entry: dict) -> PendingFeedbackItem:
+    return PendingFeedbackItem(
+        id=entry.get("id", ""),
+        contract_type=entry.get("contract_type", ""),
+        clause_index=entry.get("clause_index", 0),
+        clause_text=entry.get("clause_text", ""),
+        raw=entry.get("raw", ""),
+        parsed=entry.get("parsed"),
+        is_rule=bool(entry.get("is_rule")),
+        status=entry.get("status") or "pending",
+        lawyer_id=entry.get("lawyer_id"),
+        lawyer_name=entry.get("lawyer_name"),
+        registered_at=entry.get("registered_at", ""),
+    )
+
+
+@router.get("/feedback/pending", response_model=list[PendingFeedbackItem])
+def list_pending_feedback(me: User = Depends(_manager_only)):
+    """팀장: 자기 팀원이 제출한 승인 대기 피드백 목록."""
+    if me.team_id is None:
+        return []
+    return [_pending_to_item(e) for e in feedback_store.iter_pending(me.team_id)]
+
+
+@router.get("/feedback/active", response_model=list[PendingFeedbackItem])
+def list_active_rules(me: User = Depends(_manager_only)):
+    """팀장: 자기 팀의 승인된 활성 룰 목록 (status=approved and is_rule)."""
+    if me.team_id is None:
+        return []
+    return [_pending_to_item(e) for e in feedback_store.iter_active_rules(me.team_id)]
+
+
+def _review_feedback(feedback_id: str, new_status: str, me: User) -> PendingFeedbackItem:
+    """승인/반려 공통 처리. 대상이 내 팀 피드백인지 검증 후 status 갱신."""
+    entry = feedback_store.get_entry(feedback_id)
+    # 정보 은닉: 없거나 다른 팀이면 동일하게 404
+    if entry is None or entry.get("team_id") != me.team_id or me.team_id is None:
+        raise HTTPException(status_code=404, detail="피드백을 찾을 수 없습니다.")
+
+    updated = feedback_store.update_status(
+        feedback_id,
+        new_status,
+        reviewer_id=str(me.id),
+        reviewer_name=me.display_name or me.email,
+        reviewed_at=_iso(datetime.utcnow()),
+    )
+    if updated is None:
+        raise HTTPException(status_code=404, detail="피드백을 찾을 수 없습니다.")
+
+    # 활성 룰 캐시 무효화 (mtime 자동 무효화 보강)
+    invalidate_verified_rules_cache(updated.get("contract_type", ""))
+    logger.info(
+        f"피드백 {new_status}: id={feedback_id} reviewer={me.id} team={me.team_id}"
+    )
+    return _pending_to_item(updated)
+
+
+@router.post(
+    "/feedback/{feedback_id}/approve",
+    response_model=PendingFeedbackItem,
+    dependencies=[Depends(require_csrf)],
+)
+def approve_feedback(feedback_id: str, me: User = Depends(_manager_only)):
+    return _review_feedback(feedback_id, "approved", me)
+
+
+@router.post(
+    "/feedback/{feedback_id}/reject",
+    response_model=PendingFeedbackItem,
+    dependencies=[Depends(require_csrf)],
+)
+def reject_feedback(feedback_id: str, me: User = Depends(_manager_only)):
+    return _review_feedback(feedback_id, "rejected", me)
+
+
+@router.post(
+    "/feedback/{feedback_id}/deactivate",
+    response_model=PendingFeedbackItem,
+    dependencies=[Depends(require_csrf)],
+)
+def deactivate_feedback(feedback_id: str, me: User = Depends(_manager_only)):
+    """승인된 활성 룰을 비활성화 — 분석 적용을 중단(status=rejected)한다."""
+    entry = feedback_store.get_entry(feedback_id)
+    if entry is None or me.team_id is None or entry.get("team_id") != me.team_id:
+        raise HTTPException(status_code=404, detail="피드백을 찾을 수 없습니다.")
+    if (entry.get("status") or "approved") != "approved":
+        raise HTTPException(status_code=400, detail="승인된 활성 룰만 비활성화할 수 있습니다.")
+    return _review_feedback(feedback_id, "rejected", me)
+
+
+@router.patch(
+    "/feedback/{feedback_id}",
+    response_model=PendingFeedbackItem,
+    dependencies=[Depends(require_csrf)],
+)
+def edit_feedback(
+    feedback_id: str,
+    payload: FeedbackPayload,
+    me: User = Depends(_manager_only),
+):
+    """팀장이 승인 대기 피드백의 내용을 수정. raw를 재파싱해 parsed/is_rule을 갱신.
+
+    수정 후에도 status는 pending으로 유지 — 팀장이 이어서 승인/반려한다.
+    """
+    entry = feedback_store.get_entry(feedback_id)
+    if entry is None or me.team_id is None or entry.get("team_id") != me.team_id:
+        raise HTTPException(status_code=404, detail="피드백을 찾을 수 없습니다.")
+    # 승인 대기 또는 승인된(활성) 룰은 수정 가능. 반려된 항목은 수정 불가.
+    if (entry.get("status") or "approved") not in ("pending", "approved"):
+        raise HTTPException(status_code=400, detail="반려된 피드백은 수정할 수 없습니다.")
+
+    raw = (payload.raw or "").strip()
+    if not raw:
+        raise HTTPException(status_code=400, detail="피드백 내용이 비어 있습니다.")
+    if len(raw) > 5000:
+        raise HTTPException(status_code=400, detail="피드백이 너무 깁니다 (최대 5000자).")
+
+    parsed, _warnings = parse_feedback(raw)
+    has_any_parsed = any(
+        [parsed.condition, parsed.judgment, parsed.reason, parsed.generalize is not None]
+    )
+    is_rule = is_complete_rule(parsed)
+
+    updated = feedback_store.update_fields(feedback_id, {
+        "raw": raw,
+        "parsed": parsed.model_dump() if has_any_parsed else None,
+        "is_rule": is_rule,
+    })
+    if updated is None:
+        raise HTTPException(status_code=404, detail="피드백을 찾을 수 없습니다.")
+
+    invalidate_verified_rules_cache(updated.get("contract_type", ""))
+    logger.info(f"피드백 수정: id={feedback_id} reviewer={me.id} is_rule={is_rule}")
+    return _pending_to_item(updated)
 
 
 # ===== 사용자 관리 =====
