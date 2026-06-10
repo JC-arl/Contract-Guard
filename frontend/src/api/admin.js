@@ -37,3 +37,38 @@ export async function updateTeam(teamId, changes) {
 export async function deleteTeam(teamId) {
   await api.delete(`/api/admin/teams/${teamId}`);
 }
+
+// 피드백 승인 (팀장 전용)
+// 자기 팀원이 제출한 승인 대기 피드백 목록
+export async function listPendingFeedback() {
+  const res = await api.get("/api/admin/feedback/pending");
+  return res.data;
+}
+
+export async function approveFeedback(feedbackId) {
+  const res = await api.post(`/api/admin/feedback/${encodeURIComponent(feedbackId)}/approve`);
+  return res.data;
+}
+
+export async function rejectFeedback(feedbackId) {
+  const res = await api.post(`/api/admin/feedback/${encodeURIComponent(feedbackId)}/reject`);
+  return res.data;
+}
+
+// 승인 대기 피드백 내용 수정 (raw 재파싱). status는 그대로 유지(pending/approved).
+export async function editFeedback(feedbackId, raw) {
+  const res = await api.patch(`/api/admin/feedback/${encodeURIComponent(feedbackId)}`, { raw });
+  return res.data;
+}
+
+// 승인된 활성 룰 목록 (조회)
+export async function listActiveRules() {
+  const res = await api.get("/api/admin/feedback/active");
+  return res.data;
+}
+
+// 활성 룰 비활성화 (분석 적용 중단)
+export async function deactivateFeedback(feedbackId) {
+  const res = await api.post(`/api/admin/feedback/${encodeURIComponent(feedbackId)}/deactivate`);
+  return res.data;
+}

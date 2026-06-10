@@ -91,7 +91,14 @@ export default function App() {
               </ProtectedRoute>
             }
           >
-            <Route path="/home" element={<UploadPage />} />
+            <Route
+              path="/home"
+              element={
+                <ProtectedRoute roles={["manager", "lawyer"]}>
+                  <UploadPage />
+                </ProtectedRoute>
+              }
+            />
             <Route path="/chat" element={<ChatPage />} />
             <Route path="/result" element={<ResultPage />} />
             <Route path="/result/:analysisId" element={<ResultPage />} />

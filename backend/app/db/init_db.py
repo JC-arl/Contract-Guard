@@ -48,7 +48,7 @@ def _seed_admin() -> None:
             User(
                 email=email,
                 password_hash=security.hash_password(password),
-                display_name=settings.admin_name.strip() or "관리자",
+                display_name=settings.admin_name.strip() or "시스템 관리자",
                 role=UserRole.admin,
                 is_active=True,
             )
