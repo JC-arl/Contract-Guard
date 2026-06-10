@@ -2,7 +2,7 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext";
 
 const ROLE_LABELS = {
-  admin: "관리자",
+  admin: "시스템 관리자",
   manager: "팀장",
   lawyer: "변호사",
 };

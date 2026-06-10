@@ -13,7 +13,7 @@ import {
 import { listAnalyses } from "../api/client";
 import "../styles/admin.css";
 
-const ROLE_LABELS = { admin: "관리자", manager: "팀장", lawyer: "변호사" };
+const ROLE_LABELS = { admin: "시스템 관리자", manager: "팀장", lawyer: "변호사" };
 
 // ─── 헤더 ─────────────────────────────────────
 function AdminHeader() {
@@ -167,7 +167,7 @@ function UsersTable({ users, teams, onUpdate, readOnly = false }) {
                   value={u.role}
                   onChange={(e) => onUpdate(u.id, { role: e.target.value })}
                 >
-                  <option value="admin">관리자</option>
+                  <option value="admin">시스템 관리자</option>
                   <option value="manager">팀장</option>
                   <option value="lawyer">변호사</option>
                 </select>
@@ -430,7 +430,7 @@ export default function AdminPage() {
               ? (isAdmin ? "팀 관리" : "팀 구성도")
               : active === "history"
               ? "분석 이력"
-              : (isAdmin ? "관리자 대시보드" : "팀 구성도")}
+              : (isAdmin ? "시스템 관리자 대시보드" : "팀 구성도")}
           </h1>
           <p className="adm-page-sub">
             {active === "users"

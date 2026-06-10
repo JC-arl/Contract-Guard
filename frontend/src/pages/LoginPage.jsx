@@ -70,8 +70,8 @@ export default function LoginPage() {
     setSubmitting(true);
     try {
       if (mode === "login") {
-        await login(email.trim(), password);
-        navigate(redirectTo, { replace: true });
+        const user = await login(email.trim(), password);
+        navigate(user.role === "admin" ? "/admin" : redirectTo, { replace: true });
       } else {
         await signup(email.trim(), password, displayName.trim());
         setInfo("가입이 완료되었습니다. 로그인해 주세요.");

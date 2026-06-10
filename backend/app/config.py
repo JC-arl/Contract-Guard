@@ -49,7 +49,7 @@ class Settings(BaseSettings):
     # 셋 다 채워져 있을 때만 시드. 비워두면 시드를 건너뛴다.
     admin_email: str = ""
     admin_password: str = ""
-    admin_name: str = "관리자"
+    admin_name: str = "시스템 관리자"
 
     model_config = {"env_file": str(BASE_DIR / ".env"), "extra": "ignore"}
 

@@ -14,7 +14,9 @@ export default function ProtectedRoute({ children, roles }) {
     return <Navigate to="/" replace state={{ from: location }} />;
   }
   if (roles && roles.length > 0 && !roles.includes(currentUser.role)) {
-    return <Navigate to="/home" replace />;
+    // 권한 미충족 시 역할별 기본 화면으로. admin은 업로드 화면 접근 불가이므로 /admin으로 보낸다.
+    const fallback = currentUser.role === "admin" ? "/admin" : "/home";
+    return <Navigate to={fallback} replace />;
   }
   return children;
 }
