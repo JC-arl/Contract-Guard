@@ -11,6 +11,7 @@ import {
   updateUser,
 } from "../api/admin";
 import { listAnalyses } from "../api/client";
+import PerformancePanel from "../components/PerformancePanel";
 import "../styles/admin.css";
 
 const ROLE_LABELS = { admin: "관리자", manager: "팀장", lawyer: "변호사" };
@@ -453,6 +454,7 @@ export default function AdminPage() {
 
           {active === "dashboard" && (
             <>
+              <PerformancePanel />
               {isAdmin && <CreateTeamPanel onCreated={refreshAll} />}
               <div className="adm-grid-2">
                 <UsersTable users={users} teams={teams} onUpdate={handleUserUpdate} readOnly={!isAdmin} />
