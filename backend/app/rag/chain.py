@@ -600,8 +600,14 @@ _VERIFIED_RULES_CACHE: dict[str, tuple[float, list[dict]]] = {}
 _VERIFIED_BIGRAM_THRESHOLD = 0.5
 
 
+def invalidate_verified_rules_cache(contract_type: str) -> None:
+    """승인/반려로 jsonl을 재작성한 직후 호출. mtime 자동 무효화의 보강
+    (Windows 동일초 재작성 등 mtime 해상도 문제 방어)."""
+    _VERIFIED_RULES_CACHE.pop(contract_type, None)
+
+
 def _load_verified_rules(contract_type: str) -> list[dict]:
-    """jsonl에서 is_rule=True 항목만 로드. mtime 기반 캐시."""
+    """jsonl에서 승인된 활성 룰(is_rule=True, status=approved)만 로드. mtime 기반 캐시."""
     path = _VERIFIED_RULES_DIR / f"{contract_type}.jsonl"
     if not path.exists():
         return []
@@ -625,7 +631,10 @@ def _load_verified_rules(contract_type: str) -> list[dict]:
                     entry = json.loads(line)
                 except json.JSONDecodeError:
                     continue
-                if entry.get("is_rule") and entry.get("parsed"):
+                # 레거시(status 필드 없음)=approved 로 grandfather 처리.
+                # pending/rejected는 분석에 반영하지 않음 — 팀장 승인 후에만 활성.
+                status = entry.get("status", "approved")
+                if entry.get("is_rule") and entry.get("parsed") and status == "approved":
                     rules.append(entry)
     except OSError as e:
         logger.warning(f"verified_rules 로드 실패: {e}")
